@@ -1,0 +1,47 @@
+# ROS2 集成开发说明
+
+## 目录
+
+- `ros2_ws/src/swarm_interfaces`: 消息定义包
+- `ros2_ws/src/swarm_uav_manager`: UAV Manager ROS2 节点包
+
+## 消息
+
+- Topic: `/swarm/state`
+- Type: `swarm_interfaces/msg/SwarmState`
+
+`UavState.msg` 字段：
+
+- `id`
+- `position[3]` (`lat, lon, alt`)
+- `velocity[3]` (`vx, vy, vz`)
+- `battery`
+- `status` (`MISSION/ALARM/LANDED`)
+
+## 构建
+
+```bash
+./scripts/ros2_build.sh
+```
+
+## 运行（PX4 多实例）
+
+```bash
+./scripts/ros2_run_swarm_manager.sh 4
+```
+
+参数：
+
+- 第1个：实例数（默认 `4`）
+- 第2个：CPU 核数（默认 `nproc`）
+- 第3个：状态发布频率 Hz（默认 `5`）
+- 第4个：健康检查频率 Hz（默认 `1`）
+
+## 快速查看状态
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+ros2 topic echo /swarm/state --once
+```
+
