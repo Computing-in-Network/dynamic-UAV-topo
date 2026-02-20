@@ -42,7 +42,15 @@ opener = urllib.request.build_opener(proxy_handler)
 try:
     data = opener.open(url, timeout=1.5).read().decode("utf-8")
     obj = json.loads(data)
-    if isinstance(obj, dict) and "uavs" in obj and "links" in obj and len(obj["uavs"]) >= 1:
+    if not (isinstance(obj, dict) and "uavs" in obj and "links" in obj and len(obj["uavs"]) >= 1):
+        raise ValueError("invalid payload")
+    links = obj["links"]
+    if len(links) >= 1:
+        sample = links[0]
+        required = {"source", "target", "weight", "is_occluded"}
+        if not isinstance(sample, dict) or not required.issubset(sample.keys()):
+            raise ValueError("invalid links schema")
+    if isinstance(obj, dict):
         print(f"uav_count={len(obj['uavs'])} link_count={len(obj['links'])}")
         sys.exit(0)
 except Exception:

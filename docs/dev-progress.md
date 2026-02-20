@@ -1,6 +1,6 @@
 # SwarmSim-100 开发进度
 
-## 已完成（Node_UAV_Manager v0.2）
+## 已完成（Node_UAV_Manager + Topology Analyzer v0.3）
 
 - 多实例进程管理（启动/停止）
 - CPU affinity 分配与记录
@@ -9,17 +9,14 @@
 - 健康检查与自动重启（可配置 `max_restarts`）
 - 命令模板变量渲染：`{id}` `{index}` `{mavlink_udp_port}` `{mavlink_tcp_port}` `{sim_udp_port}`
 - 单元测试：亲和性、命令渲染、生命周期、自动重启
+- `swarm_topology_analyzer_node` 初版：
+  - 订阅 `/swarm/state_raw`，发布 `/swarm/state`
+  - 生成 `links`（距离阈值、权重归一化）
+  - 阶段性 `is_occluded` 判定（高度差近似）
+- 可视化数据流统一为 `SwarmState.links`
 
-## 下一步（接入 PX4 SITL）
+## 下一步（按 Spec 推进）
 
-需要你提供：
-
-1. 本机 PX4 SITL 启动命令模板（建议包含上述占位符）
-2. PX4 可执行文件/脚本路径
-3. ROS2 版本（Humble/Foxy）
-
-收到后可直接实现：
-
-- `Node_UAV_Manager` -> ROS2 发布 `SwarmState.msg`
-- 与 `PoseStamped` 输入打通
-- 20 架机 profiling 脚本
+1. 将 `is_occluded` 从高度差近似切换到真实地形/场景遮挡检测接口。
+2. 为 `Node_Topology_Analyzer` 增加 20 架机单帧耗时 profiling 脚本（目标 < 20ms）。
+3. 新增遮挡翻转测试场景（固定两机轨迹，验证 `is_occluded` 翻转）。

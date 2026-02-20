@@ -44,14 +44,21 @@ ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
   -p publish_hz:=5 \
   -p healthcheck_hz:=1 \
   -p demo_motion:=true \
+  -p output_topic:=/swarm/state_raw \
   -p command_template:="${PX4_CMD}" \
   > /tmp/swarm_manager.log 2>&1 &
 MANAGER_PID=$!
+
+ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
+  -p input_topic:=/swarm/state_raw \
+  -p output_topic:=/swarm/state \
+  > /tmp/swarm_topology.log 2>&1 &
+TOPO_PID=$!
 
 SWARM_VIS_PORT="${VIS_PORT}" LD_LIBRARY_PATH="/opt/ros/humble/lib:/opt/ros/humble/local/lib:${LD_LIBRARY_PATH:-}" \
   python3 "${ROOT_DIR}/scripts/ros2_visualization_server.py" > /tmp/swarm_visual_server.log 2>&1 &
 SERVER_PID=$!
 
-echo "${MANAGER_PID} ${SERVER_PID}" > "${PIDS_FILE}"
-echo "[visual_demo_start] manager_pid=${MANAGER_PID} server_pid=${SERVER_PID}"
+echo "${MANAGER_PID} ${TOPO_PID} ${SERVER_PID}" > "${PIDS_FILE}"
+echo "[visual_demo_start] manager_pid=${MANAGER_PID} topo_pid=${TOPO_PID} server_pid=${SERVER_PID}"
 echo "[visual_demo_start] 打开浏览器: http://127.0.0.1:${VIS_PORT}"

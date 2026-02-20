@@ -8,6 +8,7 @@ INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-$(nproc)}"
 PUBLISH_HZ="${3:-5}"
 HEALTHCHECK_HZ="${4:-1}"
+OUTPUT_TOPIC="${5:-/swarm/state_raw}"
 
 if [[ ! -x "${PX4_DIR}/build/px4_sitl_default/bin/px4" ]]; then
   echo "[ros2_run_swarm_manager] PX4 SITL binary not found, building..."
@@ -26,4 +27,5 @@ exec ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
   -p total_cores:="${TOTAL_CORES}" \
   -p publish_hz:="${PUBLISH_HZ}" \
   -p healthcheck_hz:="${HEALTHCHECK_HZ}" \
+  -p output_topic:="${OUTPUT_TOPIC}" \
   -p command_template:="${PX4_CMD}"

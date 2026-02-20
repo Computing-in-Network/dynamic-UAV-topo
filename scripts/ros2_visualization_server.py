@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import ctypes
-import math
 import os
 import sys
 import threading
@@ -58,6 +57,7 @@ class SwarmStateCache:
         self._payload = {
             "timestamp": 0,
             "uavs": [],
+            "links": [],
         }
 
     def update_from_msg(self, msg: SwarmState) -> None:
@@ -73,10 +73,20 @@ class SwarmStateCache:
                 }
             )
 
+        links = [
+            {
+                "source": link.source,
+                "target": link.target,
+                "weight": float(link.weight),
+                "is_occluded": bool(link.is_occluded),
+            }
+            for link in msg.links
+        ]
+
         payload = {
             "timestamp": int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000),
             "uavs": uavs,
-            "links": self._build_links(uavs),
+            "links": links,
         }
 
         with self._lock:
@@ -86,44 +96,13 @@ class SwarmStateCache:
         with self._lock:
             return dict(self._payload)
 
-    @staticmethod
-    def _build_links(uavs: list[dict]) -> list[dict]:
-        # First-stage topology: distance-based edges with normalized weight.
-        links = []
-        if len(uavs) < 2:
-            return links
-
-        def pseudo_distance(a: dict, b: dict) -> float:
-            lat1, lon1, alt1 = a["position"]
-            lat2, lon2, alt2 = b["position"]
-            dlat = (lat1 - lat2) * 111_000.0
-            dlon = (lon1 - lon2) * 111_000.0 * math.cos(math.radians((lat1 + lat2) * 0.5))
-            dalt = alt1 - alt2
-            return math.sqrt(dlat * dlat + dlon * dlon + dalt * dalt)
-
-        max_range_m = 900.0
-        for i in range(len(uavs)):
-            for j in range(i + 1, len(uavs)):
-                d = pseudo_distance(uavs[i], uavs[j])
-                if d > max_range_m:
-                    continue
-                weight = max(0.0, 1.0 - (d / max_range_m))
-                links.append(
-                    {
-                        "source": uavs[i]["id"],
-                        "target": uavs[j]["id"],
-                        "weight": round(weight, 4),
-                        "is_occluded": False,
-                    }
-                )
-        return links
-
-
 class SwarmSubscriber(Node):
     def __init__(self, cache: SwarmStateCache) -> None:
         super().__init__("swarm_visual_subscriber")
         self._cache = cache
-        self._sub = self.create_subscription(SwarmState, "/swarm/state", self._on_msg, 10)
+        topic = os.environ.get("SWARM_STATE_TOPIC", "/swarm/state")
+        self._sub = self.create_subscription(SwarmState, topic, self._on_msg, 10)
+        self.get_logger().info(f"subscribe topic={topic}")
 
     def _on_msg(self, msg: SwarmState) -> None:
         self._cache.update_from_msg(msg)

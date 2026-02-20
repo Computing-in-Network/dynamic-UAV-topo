@@ -5,7 +5,7 @@
 当前阶段目标：
 
 - 建立可运行的多实例 UAV 管理器。
-- 打通 ROS2 消息发布链路（`/swarm/state`）。
+- 打通 ROS2 消息发布链路（`/swarm/state_raw -> /swarm/state`）。
 - 提供可视化最小闭环（浏览器实时查看 UAV 状态）。
 
 ## 已实现功能
@@ -16,10 +16,12 @@
   - 健康检查与自动重启
   - 运行时快照与指标
 - ROS2 消息接口：
+  - `swarm_interfaces/msg/LinkState`
   - `swarm_interfaces/msg/UavState`
   - `swarm_interfaces/msg/SwarmState`
 - ROS2 节点：
-  - `swarm_uav_manager_node` 发布 `/swarm/state`
+  - `swarm_uav_manager_node` 发布 `/swarm/state_raw`
+  - `swarm_topology_analyzer_node` 订阅 raw 并发布 `/swarm/state`（含 `links`）
 - PX4 SITL：
   - 多实例启动可用
 - 可视化：
@@ -32,6 +34,7 @@
 - `src/` + `include/`：本地 C++ 管理器实现
 - `ros2_ws/src/swarm_interfaces`：ROS2 消息包
 - `ros2_ws/src/swarm_uav_manager`：ROS2 管理节点包
+- `ros2_ws/src/swarm_topology_analyzer`：ROS2 拓扑分析节点包
 - `scripts/`：构建、运行、验收脚本
 - `web/`：前端可视化页面（轻量版）
 - `docs/`：阶段文档
@@ -56,6 +59,7 @@
 - 第2个：CPU 核数（默认 `nproc`）
 - 第3个：状态发布频率 Hz（默认 `5`）
 - 第4个：健康检查频率 Hz（默认 `1`）
+- 第5个：输出 Topic（默认 `/swarm/state_raw`）
 
 ## 可视化演示
 
@@ -95,4 +99,4 @@
 
 ## 备注
 
-- 当前可视化已提供 Cesium + Deck.gl 骨架，并复用同一 `/api/swarm_state` 数据流。
+- 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。

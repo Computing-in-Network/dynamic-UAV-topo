@@ -33,12 +33,14 @@ class SwarmUavManagerNode : public rclcpp::Node {
         "command_template", "sleep 1000");
     const int publish_hz = declare_parameter<int>("publish_hz", 5);
     const int healthcheck_hz = declare_parameter<int>("healthcheck_hz", 1);
+    const std::string output_topic =
+        declare_parameter<std::string>("output_topic", "/swarm/state");
     demo_motion_ = declare_parameter<bool>("demo_motion", true);
     demo_origin_lat_ = declare_parameter<double>("demo_origin_lat", 39.9042);
     demo_origin_lon_ = declare_parameter<double>("demo_origin_lon", 116.4074);
     demo_radius_deg_ = declare_parameter<double>("demo_radius_deg", 0.0025);
 
-    publisher_ = create_publisher<swarm_interfaces::msg::SwarmState>("/swarm/state", 10);
+    publisher_ = create_publisher<swarm_interfaces::msg::SwarmState>(output_topic, 10);
 
     auto configs = swarm_uav_manager::NodeUavManager::BuildDefaultConfigs(
         static_cast<std::size_t>(instance_count), command_template);
@@ -56,7 +58,8 @@ class SwarmUavManagerNode : public rclcpp::Node {
         std::chrono::milliseconds(1000 / std::max(1, healthcheck_hz)),
         [this]() { TickHealthCheck(); });
 
-    RCLCPP_INFO(get_logger(), "swarm_uav_manager started, instances=%d", instance_count);
+    RCLCPP_INFO(get_logger(), "swarm_uav_manager started, instances=%d output=%s",
+                instance_count, output_topic.c_str());
   }
 
   ~SwarmUavManagerNode() override {

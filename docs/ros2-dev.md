@@ -4,10 +4,12 @@
 
 - `ros2_ws/src/swarm_interfaces`: 消息定义包
 - `ros2_ws/src/swarm_uav_manager`: UAV Manager ROS2 节点包
+- `ros2_ws/src/swarm_topology_analyzer`: 拓扑分析 ROS2 节点包
 
 ## 消息
 
-- Topic: `/swarm/state`
+- Topic: `/swarm/state_raw`（原始 UAV 状态）
+- Topic: `/swarm/state`（拓扑分析后状态）
 - Type: `swarm_interfaces/msg/SwarmState`
 
 `UavState.msg` 字段：
@@ -17,6 +19,13 @@
 - `velocity[3]` (`vx, vy, vz`)
 - `battery`
 - `status` (`MISSION/ALARM/LANDED`)
+
+`LinkState.msg` 字段：
+
+- `source`
+- `target`
+- `weight`
+- `is_occluded`
 
 ## 构建
 
@@ -36,6 +45,7 @@
 - 第2个：CPU 核数（默认 `nproc`）
 - 第3个：状态发布频率 Hz（默认 `5`）
 - 第4个：健康检查频率 Hz（默认 `1`）
+- 第5个：输出 Topic（默认 `/swarm/state_raw`）
 
 ## 可视化演示（浏览器）
 
@@ -74,4 +84,5 @@
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 ros2 topic echo /swarm/state --once
+ros2 topic echo /swarm/state_raw --once
 ```
