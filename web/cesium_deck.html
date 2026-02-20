@@ -107,7 +107,7 @@
     <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
     <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
     <script>
-      const state = { timestamp: 0, uavs: [], links: [] };
+      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [] };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
       let basemapMode = 'OSM';
@@ -174,6 +174,8 @@
 
       const entityMap = new Map();
       const polylineMap = new Map();
+      const hotspotMap = new Map();
+      const missionLineMap = new Map();
 
       const deckgl = new deck.Deck({
         parent: document.getElementById('deck'),
@@ -284,6 +286,92 @@
         }
       }
 
+      function fireColor(intensity) {
+        if (intensity >= 0.85) return Cesium.Color.fromBytes(239, 68, 68, 220);
+        if (intensity >= 0.6) return Cesium.Color.fromBytes(245, 158, 11, 220);
+        return Cesium.Color.fromBytes(250, 204, 21, 200);
+      }
+
+      function upsertFireHotspots(hotspots) {
+        const live = new Set();
+        for (const h of hotspots || []) {
+          live.add(h.id);
+          const lon = h.position[1];
+          const lat = h.position[0];
+          const alt = h.position[2];
+          const color = fireColor(h.intensity || 0);
+          const pixel = 12 + Math.round((h.intensity || 0.5) * 12);
+          let e = hotspotMap.get(h.id);
+          if (!e) {
+            e = viewer.entities.add({
+              id: `fire:${h.id}`,
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+              point: { pixelSize: pixel, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
+              label: {
+                text: `F ${h.id}`,
+                font: '13px JetBrains Mono',
+                fillColor: Cesium.Color.WHITE,
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                outlineColor: Cesium.Color.BLACK,
+                outlineWidth: 2,
+                verticalOrigin: Cesium.VerticalOrigin.TOP,
+                pixelOffset: new Cesium.Cartesian2(0, 14)
+              }
+            });
+            hotspotMap.set(h.id, e);
+          } else {
+            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+            e.point.pixelSize = pixel;
+            e.point.color = color;
+          }
+        }
+        for (const [id, entity] of hotspotMap.entries()) {
+          if (!live.has(id)) {
+            viewer.entities.remove(entity);
+            hotspotMap.delete(id);
+          }
+        }
+      }
+
+      function upsertMissionLines(uavs, targets) {
+        const uavById = new Map();
+        for (const u of uavs) uavById.set(u.id, u.position);
+        const live = new Set();
+        for (const t of targets || []) {
+          const up = uavById.get(t.uav_id);
+          if (!up) continue;
+          const key = t.uav_id;
+          live.add(key);
+          const positions = Cesium.Cartesian3.fromDegreesArrayHeights([
+            up[1], up[0], up[2],
+            t.position[1], t.position[0], t.position[2]
+          ]);
+          let e = missionLineMap.get(key);
+          if (!e) {
+            e = viewer.entities.add({
+              id: `mission:${key}`,
+              polyline: {
+                positions,
+                width: 2,
+                material: new Cesium.PolylineDashMaterialProperty({
+                  color: Cesium.Color.fromBytes(59, 130, 246, 220),
+                  dashLength: 12
+                })
+              }
+            });
+            missionLineMap.set(key, e);
+          } else {
+            e.polyline.positions = positions;
+          }
+        }
+        for (const [k, e] of missionLineMap.entries()) {
+          if (!live.has(k)) {
+            viewer.entities.remove(e);
+            missionLineMap.delete(k);
+          }
+        }
+      }
+
       function updateDeck(uavs, links) {
         const data = uavs.map((u, i) => ({
           x: i,
@@ -351,13 +439,20 @@
           state.timestamp = next.timestamp;
           state.uavs = next.uavs || [];
           state.links = next.links || [];
+          state.fire_hotspots = next.fire_hotspots || [];
+          state.mission_targets = next.mission_targets || [];
           const avgW = state.links.length
             ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
             : 'n/a';
+          const maxFire = state.fire_hotspots.length
+            ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
+            : 'n/a';
 
-          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">basemap=${basemapMode}</span>`;
+          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span>`;
           upsertCesiumEntities(state.uavs);
           upsertCesiumLinks(state.uavs, state.links);
+          upsertFireHotspots(state.fire_hotspots);
+          upsertMissionLines(state.uavs, state.mission_targets);
           updateDeck(state.uavs, state.links);
           updateTable(state.uavs);
         } catch (_) {

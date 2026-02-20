@@ -22,7 +22,7 @@ os.environ["LD_LIBRARY_PATH"] = ld_library_path
 try:
     import rclpy
     from rclpy.node import Node
-    from swarm_interfaces.msg import SwarmState
+    from swarm_interfaces.msg import FireState, MissionPlan, SwarmState
 except ModuleNotFoundError:
     ros_py_paths = [
         "/opt/ros/humble/local/lib/python3.10/dist-packages",
@@ -48,7 +48,7 @@ except ModuleNotFoundError:
             pass
     import rclpy
     from rclpy.node import Node
-    from swarm_interfaces.msg import SwarmState
+    from swarm_interfaces.msg import FireState, MissionPlan, SwarmState
 
 
 class SwarmStateCache:
@@ -58,6 +58,8 @@ class SwarmStateCache:
             "timestamp": 0,
             "uavs": [],
             "links": [],
+            "fire_hotspots": [],
+            "mission_targets": [],
         }
 
     def update_from_msg(self, msg: SwarmState) -> None:
@@ -87,10 +89,38 @@ class SwarmStateCache:
             "timestamp": int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000),
             "uavs": uavs,
             "links": links,
+            "fire_hotspots": self._payload.get("fire_hotspots", []),
+            "mission_targets": self._payload.get("mission_targets", []),
         }
 
         with self._lock:
             self._payload = payload
+
+    def update_fire(self, msg: FireState) -> None:
+        fire = [
+            {
+                "id": hs.id,
+                "position": [float(hs.position[0]), float(hs.position[1]), float(hs.position[2])],
+                "intensity": float(hs.intensity),
+                "spread_mps": float(hs.spread_mps),
+            }
+            for hs in msg.hotspots
+        ]
+        with self._lock:
+            self._payload["fire_hotspots"] = fire
+
+    def update_mission(self, msg: MissionPlan) -> None:
+        targets = [
+            {
+                "uav_id": t.uav_id,
+                "position": [float(t.position[0]), float(t.position[1]), float(t.position[2])],
+                "priority": float(t.priority),
+                "reason": t.reason,
+            }
+            for t in msg.targets
+        ]
+        with self._lock:
+            self._payload["mission_targets"] = targets
 
     def get(self) -> dict:
         with self._lock:
@@ -100,12 +130,22 @@ class SwarmSubscriber(Node):
     def __init__(self, cache: SwarmStateCache) -> None:
         super().__init__("swarm_visual_subscriber")
         self._cache = cache
-        topic = os.environ.get("SWARM_STATE_TOPIC", "/swarm/state")
-        self._sub = self.create_subscription(SwarmState, topic, self._on_msg, 10)
-        self.get_logger().info(f"subscribe topic={topic}")
+        swarm_topic = os.environ.get("SWARM_STATE_TOPIC", "/swarm/state")
+        fire_topic = os.environ.get("FIRE_STATE_TOPIC", "/env/fire_state")
+        mission_topic = os.environ.get("MISSION_TOPIC", "/swarm/mission_targets")
+        self._swarm_sub = self.create_subscription(SwarmState, swarm_topic, self._on_swarm, 10)
+        self._fire_sub = self.create_subscription(FireState, fire_topic, self._on_fire, 10)
+        self._mission_sub = self.create_subscription(MissionPlan, mission_topic, self._on_mission, 10)
+        self.get_logger().info(f"subscribe swarm={swarm_topic} fire={fire_topic} mission={mission_topic}")
 
-    def _on_msg(self, msg: SwarmState) -> None:
+    def _on_swarm(self, msg: SwarmState) -> None:
         self._cache.update_from_msg(msg)
+
+    def _on_fire(self, msg: FireState) -> None:
+        self._cache.update_fire(msg)
+
+    def _on_mission(self, msg: MissionPlan) -> None:
+        self._cache.update_mission(msg)
 
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
