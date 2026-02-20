@@ -102,6 +102,20 @@
 - 第一阶段使用大高度差（期望 `is_occluded=true`），第二阶段使用小高度差（期望 `is_occluded=false`）。
 - 输出通过标准为 `occluded_first=True occluded_second=False`。
 
+## 100Hz 压力测试
+
+```bash
+./scripts/stress_100hz.sh 20 20 100 10 20.0
+```
+
+说明：
+
+- 脚本会启动 manager + topology，并持续采集 `/swarm/state` 消息数。
+- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`。
+- 当前通过标准：
+  - 拓扑 `status=PASS`
+  - `observed_hz >= 0.8 * target_hz`
+
 ## 快速查看状态
 
 ```bash

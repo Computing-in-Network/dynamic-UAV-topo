@@ -18,6 +18,7 @@
 - 可视化数据流统一为 `SwarmState.links`
 - 新增 20 架机拓扑 profiling 脚本：`scripts/profile_topology_20.sh`
 - 新增遮挡翻转验证脚本：`scripts/test_occlusion_flip.sh`
+- 新增 100Hz 压力测试脚本：`scripts/stress_100hz.sh`（输出 `observed_hz` 与 `context_switch_hz`）
 
 ## 下一步（按 Spec 推进）
 

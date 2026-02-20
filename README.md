@@ -134,6 +134,26 @@
 - 输出 `occluded_first=True occluded_second=False`
 - 输出 `[test_occlusion_flip] PASS: is_occluded 已从 true 翻转为 false`
 
+## 100Hz 压力测试
+
+```bash
+./scripts/stress_100hz.sh 20 20 100 10 20.0
+```
+
+参数：
+
+- 第1个：实例数（默认 `20`）
+- 第2个：CPU 核数（默认 `20`）
+- 第3个：目标发布频率 Hz（默认 `100`）
+- 第4个：采样时长秒（默认 `10`）
+- 第5个：拓扑帧耗时目标 ms（默认 `20.0`）
+
+输出包含：
+
+- 拓扑 profile（`avg_ms/max_ms/status`）
+- `/swarm/state` 实测频率（`observed_hz`）
+- 系统 context switch 频率（`context_switch_hz`）
+
 ## 备注
 
 - 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。
