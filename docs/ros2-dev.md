@@ -37,6 +37,31 @@
 - 第3个：状态发布频率 Hz（默认 `5`）
 - 第4个：健康检查频率 Hz（默认 `1`）
 
+## 可视化演示（浏览器）
+
+```bash
+./scripts/visual_demo_start.sh 2 2 8899
+```
+
+打开：`http://127.0.0.1:8899`
+
+停止：
+
+```bash
+./scripts/visual_demo_stop.sh
+```
+
+## 一键验收（推荐）
+
+```bash
+./scripts/visual_demo_check.sh 8899 2 2
+```
+
+预期输出包含：
+
+- `uav_count=2`
+- `[visual_demo_check] PASS: 可视化 API 已返回 UAV 数据`
+
 ## 快速查看状态
 
 ```bash
@@ -44,4 +69,3 @@ source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 ros2 topic echo /swarm/state --once
 ```
-

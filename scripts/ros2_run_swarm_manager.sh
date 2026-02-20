@@ -14,8 +14,10 @@ if [[ ! -x "${PX4_DIR}/build/px4_sitl_default/bin/px4" ]]; then
   (cd "${PX4_DIR}" && CCACHE_DISABLE=1 make px4_sitl -j"$(nproc)")
 fi
 
+set +u
 source /opt/ros/humble/setup.bash
 source "${ROOT_DIR}/ros2_ws/install/setup.bash"
+set -u
 
 PX4_CMD="cd ${PX4_DIR} && PX4_SIM_MODEL=none ./build/px4_sitl_default/bin/px4 -i {index} -d ./build/px4_sitl_default/etc"
 

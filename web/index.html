@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Swarm 状态可视化</title>
+    <style>
+      :root {
+        --bg: #071226;
+        --panel: #10213d;
+        --text: #dbeafe;
+        --muted: #93c5fd;
+        --accent: #f59e0b;
+        --ok: #22c55e;
+        --warn: #ef4444;
+      }
+      body {
+        margin: 0;
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+        background: radial-gradient(circle at 20% 10%, #15305d, var(--bg));
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 16px;
+      }
+      .card {
+        background: color-mix(in srgb, var(--panel) 88%, #ffffff 12%);
+        border: 1px solid #1e3a8a;
+        border-radius: 14px;
+        padding: 14px;
+      }
+      canvas {
+        width: 100%;
+        height: 560px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #0b1732, #081126);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 22px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      th, td {
+        text-align: left;
+        padding: 6px;
+        border-bottom: 1px dashed #274690;
+      }
+      .status-0 { color: var(--ok); }
+      .status-1 { color: var(--warn); }
+      .status-2 { color: var(--muted); }
+      .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+      @media (max-width: 980px) {
+        .row { grid-template-columns: 1fr; }
+        canvas { height: 420px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Swarm 实时拓扑视图（Alpha）</h1>
+      <div class="meta" id="meta">等待数据...</div>
+      <div class="row">
+        <div class="card">
+          <canvas id="map" width="900" height="560"></canvas>
+        </div>
+        <div class="card">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Lat</th><th>Lon</th><th>Alt</th><th>Status</th></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById('map');
+      const ctx = canvas.getContext('2d');
+      const rows = document.getElementById('rows');
+      const meta = document.getElementById('meta');
+      let state = { timestamp: 0, uavs: [] };
+
+      function drawGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(96,165,250,0.18)';
+        for (let x = 0; x <= canvas.width; x += 60) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += 60) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      }
+
+      function bounds(uavs) {
+        if (uavs.length === 0) {
+          return { minLat: -1, maxLat: 1, minLon: -1, maxLon: 1 };
+        }
+        let minLat = uavs[0].position[0], maxLat = uavs[0].position[0];
+        let minLon = uavs[0].position[1], maxLon = uavs[0].position[1];
+        for (const u of uavs) {
+          minLat = Math.min(minLat, u.position[0]);
+          maxLat = Math.max(maxLat, u.position[0]);
+          minLon = Math.min(minLon, u.position[1]);
+          maxLon = Math.max(maxLon, u.position[1]);
+        }
+        if (maxLat - minLat < 1e-6) { maxLat += 1e-3; minLat -= 1e-3; }
+        if (maxLon - minLon < 1e-6) { maxLon += 1e-3; minLon -= 1e-3; }
+        return { minLat, maxLat, minLon, maxLon };
+      }
+
+      function project(lat, lon, b) {
+        const margin = 40;
+        const x = margin + ((lon - b.minLon) / (b.maxLon - b.minLon)) * (canvas.width - margin * 2);
+        const y = canvas.height - margin - ((lat - b.minLat) / (b.maxLat - b.minLat)) * (canvas.height - margin * 2);
+        return [x, y];
+      }
+
+      function drawUavs(uavs) {
+        const b = bounds(uavs);
+        for (const u of uavs) {
+          const [x, y] = project(u.position[0], u.position[1], b);
+          const color = u.status === 1 ? '#ef4444' : (u.status === 2 ? '#60a5fa' : '#22c55e');
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(x, y, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.stroke();
+          ctx.fillStyle = '#e5e7eb';
+          ctx.font = '12px JetBrains Mono';
+          ctx.fillText(u.id, x + 10, y - 10);
+        }
+      }
+
+      function renderTable(uavs) {
+        rows.innerHTML = '';
+        for (const u of uavs) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${u.id}</td><td>${u.position[0].toFixed(6)}</td><td>${u.position[1].toFixed(6)}</td><td>${u.position[2].toFixed(1)}</td><td class="status-${u.status}">${u.status}</td>`;
+          rows.appendChild(tr);
+        }
+      }
+
+      async function tick() {
+        try {
+          const res = await fetch('/api/swarm_state', { cache: 'no-store' });
+          state = await res.json();
+          meta.textContent = `timestamp=${state.timestamp} uav_count=${state.uavs.length}`;
+          drawGrid();
+          drawUavs(state.uavs);
+          renderTable(state.uavs);
+        } catch (e) {
+          meta.textContent = '连接中断，等待恢复...';
+        }
+      }
+
+      drawGrid();
+      setInterval(tick, 500);
+      tick();
+    </script>
+  </body>
+</html>

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,6 +33,10 @@ class SwarmUavManagerNode : public rclcpp::Node {
         "command_template", "sleep 1000");
     const int publish_hz = declare_parameter<int>("publish_hz", 5);
     const int healthcheck_hz = declare_parameter<int>("healthcheck_hz", 1);
+    demo_motion_ = declare_parameter<bool>("demo_motion", true);
+    demo_origin_lat_ = declare_parameter<double>("demo_origin_lat", 39.9042);
+    demo_origin_lon_ = declare_parameter<double>("demo_origin_lon", 116.4074);
+    demo_radius_deg_ = declare_parameter<double>("demo_radius_deg", 0.0025);
 
     publisher_ = create_publisher<swarm_interfaces::msg::SwarmState>("/swarm/state", 10);
 
@@ -61,15 +66,26 @@ class SwarmUavManagerNode : public rclcpp::Node {
  private:
   void PublishSnapshot() {
     const auto snapshot = manager_.BuildSnapshot();
+    const double now_s = now().seconds();
 
     swarm_interfaces::msg::SwarmState msg;
     msg.stamp = now();
     msg.uavs.reserve(snapshot.uavs.size());
 
-    for (const auto& uav : snapshot.uavs) {
+    for (std::size_t i = 0; i < snapshot.uavs.size(); ++i) {
+      const auto& uav = snapshot.uavs[i];
       swarm_interfaces::msg::UavState uav_msg;
       uav_msg.id = uav.id;
-      uav_msg.position = {uav.pose.lat, uav.pose.lon, uav.pose.alt};
+      double lat = uav.pose.lat;
+      double lon = uav.pose.lon;
+      double alt = uav.pose.alt;
+      if (demo_motion_) {
+        const double phase = now_s * 0.35 + static_cast<double>(i) * 1.3;
+        lat = demo_origin_lat_ + std::sin(phase) * demo_radius_deg_;
+        lon = demo_origin_lon_ + std::cos(phase) * demo_radius_deg_;
+        alt = 100.0 + std::sin(phase * 2.0) * 20.0;
+      }
+      uav_msg.position = {lat, lon, alt};
       uav_msg.velocity = {uav.velocity.vx, uav.velocity.vy, uav.velocity.vz};
       uav_msg.battery = static_cast<float>(uav.battery);
       uav_msg.status = ToMsgStatus(uav.status);
@@ -94,6 +110,10 @@ class SwarmUavManagerNode : public rclcpp::Node {
   rclcpp::Publisher<swarm_interfaces::msg::SwarmState>::SharedPtr publisher_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
   rclcpp::TimerBase::SharedPtr healthcheck_timer_;
+  bool demo_motion_{true};
+  double demo_origin_lat_{0.0};
+  double demo_origin_lon_{0.0};
+  double demo_radius_deg_{0.0};
 };
 
 }  // namespace
