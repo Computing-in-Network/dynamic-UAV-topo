@@ -8,6 +8,24 @@ INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-$(nproc)}"
 VIS_PORT="${3:-8899}"
 
+"${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
+
+if ! python3 - <<PY
+import socket,sys
+port=${VIS_PORT}
+s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("127.0.0.1", port))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+PY
+then
+  echo "[visual_demo_start] 端口 ${VIS_PORT} 已被占用，请更换端口后重试"
+  exit 1
+fi
+
 set +u
 source /opt/ros/humble/setup.bash
 source "${ROOT_DIR}/ros2_ws/install/setup.bash"

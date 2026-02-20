@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Swarm Cesium + Deck.gl</title>
+    <link rel="stylesheet" href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" />
+    <style>
+      :root {
+        --bg: #050816;
+        --panel: #0e1a30;
+        --line: #2c4a8c;
+        --text: #e6eefc;
+        --muted: #8aa4d9;
+        --ok: #22c55e;
+        --warn: #ef4444;
+        --landed: #60a5fa;
+      }
+      html, body {
+        margin: 0;
+        height: 100%;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at 5% 5%, #1b3064, var(--bg));
+      }
+      .layout {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 2.3fr 1fr;
+        gap: 10px;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      .map-card, .side-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--panel) 90%, #ffffff 10%);
+      }
+      #map {
+        width: 100%;
+        height: 100%;
+      }
+      .side-inner {
+        display: grid;
+        grid-template-rows: auto 200px 1fr;
+        height: 100%;
+      }
+      .meta {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #deck {
+        border-bottom: 1px solid var(--line);
+        position: relative;
+      }
+      .table-wrap {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      th, td {
+        padding: 8px;
+        border-bottom: 1px dashed #284888;
+        text-align: left;
+      }
+      .status-0 { color: var(--ok); }
+      .status-1 { color: var(--warn); }
+      .status-2 { color: var(--landed); }
+      .badge {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        font-size: 11px;
+      }
+      @media (max-width: 1024px) {
+        .layout { grid-template-columns: 1fr; }
+        .side-inner { grid-template-rows: auto 160px 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="map-card"><div id="map"></div></div>
+      <div class="side-card">
+        <div class="side-inner">
+          <div class="meta" id="meta">初始化中...</div>
+          <div id="deck"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Lat</th><th>Lon</th><th>Alt</th><th>Status</th></tr></thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
+    <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
+    <script>
+      const state = { timestamp: 0, uavs: [], links: [] };
+      const rows = document.getElementById('rows');
+      const meta = document.getElementById('meta');
+
+      Cesium.Ion.defaultAccessToken = undefined;
+      const viewer = new Cesium.Viewer('map', {
+        animation: false,
+        timeline: false,
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: true,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+        imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+          url: 'https://tile.openstreetmap.org/'
+        })
+      });
+      viewer.scene.globe.depthTestAgainstTerrain = false;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 22000.0)
+      });
+
+      const entityMap = new Map();
+      const polylineMap = new Map();
+
+      const deckgl = new deck.Deck({
+        parent: document.getElementById('deck'),
+        controller: false,
+        views: new deck.OrthographicView(),
+        initialViewState: {target: [0, 0, 0], zoom: 0},
+        layers: []
+      });
+
+      function statusColor(status) {
+        if (status === 1) return [239, 68, 68, 210];
+        if (status === 2) return [96, 165, 250, 210];
+        return [34, 197, 94, 210];
+      }
+
+      function upsertCesiumEntities(uavs) {
+        const live = new Set();
+        for (const u of uavs) {
+          live.add(u.id);
+          const lon = u.position[1];
+          const lat = u.position[0];
+          const alt = u.position[2];
+          const color = statusColor(u.status);
+          const cesiumColor = Cesium.Color.fromBytes(color[0], color[1], color[2], color[3]);
+
+          let e = entityMap.get(u.id);
+          if (!e) {
+            e = viewer.entities.add({
+              id: u.id,
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+              point: { pixelSize: 10, color: cesiumColor, outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
+              label: {
+                text: u.id,
+                font: '14px JetBrains Mono',
+                fillColor: Cesium.Color.WHITE,
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                outlineColor: Cesium.Color.BLACK,
+                outlineWidth: 2,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -14)
+              }
+            });
+            entityMap.set(u.id, e);
+          } else {
+            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+            e.point.color = cesiumColor;
+            e.label.text = u.id;
+          }
+        }
+
+        for (const [id, entity] of entityMap.entries()) {
+          if (!live.has(id)) {
+            viewer.entities.remove(entity);
+            entityMap.delete(id);
+          }
+        }
+      }
+
+      function linkColor(weight) {
+        if (weight >= 0.75) return Cesium.Color.fromBytes(34, 197, 94, 220);
+        if (weight >= 0.45) return Cesium.Color.fromBytes(245, 158, 11, 220);
+        return Cesium.Color.fromBytes(239, 68, 68, 220);
+      }
+
+      function upsertCesiumLinks(uavs, links) {
+        const posById = new Map();
+        for (const u of uavs) {
+          posById.set(u.id, u.position);
+        }
+
+        const live = new Set();
+        for (const l of links) {
+          const key = `${l.source}->${l.target}`;
+          const a = posById.get(l.source);
+          const b = posById.get(l.target);
+          if (!a || !b) continue;
+          live.add(key);
+
+          const color = linkColor(l.weight);
+          const positions = Cesium.Cartesian3.fromDegreesArrayHeights([
+            a[1], a[0], a[2],
+            b[1], b[0], b[2]
+          ]);
+
+          let e = polylineMap.get(key);
+          if (!e) {
+            e = viewer.entities.add({
+              id: `link:${key}`,
+              polyline: {
+                positions,
+                width: 2 + (l.weight * 3.0),
+                material: color
+              }
+            });
+            polylineMap.set(key, e);
+          } else {
+            e.polyline.positions = positions;
+            e.polyline.material = color;
+            e.polyline.width = 2 + (l.weight * 3.0);
+          }
+        }
+
+        for (const [k, e] of polylineMap.entries()) {
+          if (!live.has(k)) {
+            viewer.entities.remove(e);
+            polylineMap.delete(k);
+          }
+        }
+      }
+
+      function updateDeck(uavs, links) {
+        const data = uavs.map((u, i) => ({
+          x: i,
+          y: u.position[2],
+          id: u.id,
+          status: u.status,
+          battery: u.battery
+        }));
+        const indexById = new Map(data.map((d, i) => [d.id, i]));
+        const linkData = (links || [])
+          .filter(l => indexById.has(l.source) && indexById.has(l.target))
+          .map(l => ({
+            source: [indexById.get(l.source), 12],
+            target: [indexById.get(l.target), 12],
+            weight: l.weight
+          }));
+
+        deckgl.setProps({
+          initialViewState: {
+            target: [Math.max(0, (data.length - 1) / 2), 100, 0],
+            zoom: -1
+          },
+          layers: [
+            new deck.ArcLayer({
+              id: 'link-arc-panel',
+              data: linkData,
+              getSourcePosition: d => d.source,
+              getTargetPosition: d => d.target,
+              getSourceColor: d => d.weight >= 0.6 ? [34, 197, 94, 170] : [245, 158, 11, 170],
+              getTargetColor: d => d.weight >= 0.6 ? [34, 197, 94, 170] : [239, 68, 68, 170],
+              getWidth: d => 1 + d.weight * 3
+            }),
+            new deck.ScatterplotLayer({
+              id: 'alt-panel',
+              data,
+              getPosition: d => [d.x, d.y],
+              getFillColor: d => statusColor(d.status),
+              getRadius: d => 10 + (d.battery * 0.15),
+              radiusUnits: 'pixels',
+              pickable: true,
+              onHover: info => {
+                const d = info.object;
+                if (d) {
+                  meta.textContent = `timestamp=${state.timestamp} uav_count=${state.uavs.length} | hover=${d.id} alt=${d.y.toFixed(1)} battery=${d.battery.toFixed(1)}`;
+                }
+              }
+            })
+          ]
+        });
+      }
+
+      function updateTable(uavs) {
+        rows.innerHTML = '';
+        for (const u of uavs) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${u.id}</td><td>${u.position[0].toFixed(6)}</td><td>${u.position[1].toFixed(6)}</td><td>${u.position[2].toFixed(1)}</td><td class="status-${u.status}">${u.status}</td>`;
+          rows.appendChild(tr);
+        }
+      }
+
+      async function tick() {
+        try {
+          const res = await fetch('/api/swarm_state', {cache: 'no-store'});
+          const next = await res.json();
+          state.timestamp = next.timestamp;
+          state.uavs = next.uavs || [];
+          state.links = next.links || [];
+          const avgW = state.links.length
+            ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
+            : 'n/a';
+
+          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span>`;
+          upsertCesiumEntities(state.uavs);
+          upsertCesiumLinks(state.uavs, state.links);
+          updateDeck(state.uavs, state.links);
+          updateTable(state.uavs);
+        } catch (_) {
+          meta.textContent = '数据流中断，等待恢复...';
+        }
+      }
+
+      setInterval(tick, 500);
+      tick();
+    </script>
+  </body>
+</html>

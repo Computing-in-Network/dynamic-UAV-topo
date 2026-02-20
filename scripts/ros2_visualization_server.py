@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import ctypes
+import math
 import os
 import sys
 import threading
@@ -60,12 +61,9 @@ class SwarmStateCache:
         }
 
     def update_from_msg(self, msg: SwarmState) -> None:
-        payload = {
-            "timestamp": int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000),
-            "uavs": [],
-        }
+        uavs = []
         for uav in msg.uavs:
-            payload["uavs"].append(
+            uavs.append(
                 {
                     "id": uav.id,
                     "position": [float(uav.position[0]), float(uav.position[1]), float(uav.position[2])],
@@ -75,12 +73,50 @@ class SwarmStateCache:
                 }
             )
 
+        payload = {
+            "timestamp": int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000),
+            "uavs": uavs,
+            "links": self._build_links(uavs),
+        }
+
         with self._lock:
             self._payload = payload
 
     def get(self) -> dict:
         with self._lock:
             return dict(self._payload)
+
+    @staticmethod
+    def _build_links(uavs: list[dict]) -> list[dict]:
+        # First-stage topology: distance-based edges with normalized weight.
+        links = []
+        if len(uavs) < 2:
+            return links
+
+        def pseudo_distance(a: dict, b: dict) -> float:
+            lat1, lon1, alt1 = a["position"]
+            lat2, lon2, alt2 = b["position"]
+            dlat = (lat1 - lat2) * 111_000.0
+            dlon = (lon1 - lon2) * 111_000.0 * math.cos(math.radians((lat1 + lat2) * 0.5))
+            dalt = alt1 - alt2
+            return math.sqrt(dlat * dlat + dlon * dlon + dalt * dalt)
+
+        max_range_m = 900.0
+        for i in range(len(uavs)):
+            for j in range(i + 1, len(uavs)):
+                d = pseudo_distance(uavs[i], uavs[j])
+                if d > max_range_m:
+                    continue
+                weight = max(0.0, 1.0 - (d / max_range_m))
+                links.append(
+                    {
+                        "source": uavs[i]["id"],
+                        "target": uavs[j]["id"],
+                        "weight": round(weight, 4),
+                        "is_occluded": False,
+                    }
+                )
+        return links
 
 
 class SwarmSubscriber(Node):
@@ -93,18 +129,28 @@ class SwarmSubscriber(Node):
         self._cache.update_from_msg(msg)
 
 
-INDEX_HTML = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+INDEX_HTML = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+LEGACY_HTML = INDEX_HTML
+CESIUM_HTML = (WEB_DIR / "cesium_deck.html").read_text(encoding="utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
     cache: SwarmStateCache
 
     def do_GET(self) -> None:
-        if self.path in ("/", "/index.html"):
+        if self.path in ("/", "/index.html", "/cesium"):
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write(INDEX_HTML.encode("utf-8"))
+            self.wfile.write(CESIUM_HTML.encode("utf-8"))
+            return
+
+        if self.path == "/legacy":
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(LEGACY_HTML.encode("utf-8"))
             return
 
         if self.path == "/api/swarm_state":

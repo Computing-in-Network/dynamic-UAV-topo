@@ -24,7 +24,8 @@
   - 多实例启动可用
 - 可视化：
   - `scripts/ros2_visualization_server.py`
-  - `web/index.html`
+  - `web/cesium_deck.html`（Cesium + Deck.gl）
+  - `web/index.html`（旧版轻量视图）
 
 ## 目录结构
 
@@ -66,6 +67,11 @@
 
 打开浏览器：`http://127.0.0.1:8899`
 
+说明：
+
+- 默认首页为 Cesium + Deck.gl 版本
+- 旧版轻量页面：`http://127.0.0.1:8899/legacy`
+
 ### 一键停止
 
 ```bash
@@ -80,10 +86,13 @@
 
 通过标准：
 
-- 输出 `uav_count=2`
+- 输出 `uav_count=2 link_count=...`
 - 输出 `[visual_demo_check] PASS: 可视化 API 已返回 UAV 数据`
+
+说明：
+
+- 若 `8899` 被占用，验收脚本会自动选择附近可用端口并在 PASS 行中打印实际端口。
 
 ## 备注
 
-- 当前可视化是轻量版本（Canvas + HTTP API），用于阶段验证。
-- 后续将切换到 Spec 目标前端（CesiumJS + Deck.gl）。
+- 当前可视化已提供 Cesium + Deck.gl 骨架，并复用同一 `/api/swarm_state` 数据流。
