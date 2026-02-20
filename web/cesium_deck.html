@@ -110,8 +110,21 @@
       const state = { timestamp: 0, uavs: [], links: [] };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
+      let basemapMode = 'OSM';
+      let osmErrorCount = 0;
+      const forceBasemap = new URLSearchParams(window.location.search).get('basemap');
 
       Cesium.Ion.defaultAccessToken = undefined;
+      const osmProvider = new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/'
+      });
+      const fallbackProvider = new Cesium.GridImageryProvider({
+        cells: 16,
+        color: Cesium.Color.fromCssColorString('#35548f'),
+        glowColor: Cesium.Color.fromCssColorString('#203a71'),
+        glowWidth: 6,
+        backgroundColor: Cesium.Color.fromCssColorString('#071127')
+      });
       const viewer = new Cesium.Viewer('map', {
         animation: false,
         timeline: false,
@@ -121,11 +134,40 @@
         sceneModePicker: false,
         navigationHelpButton: false,
         terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-        imageryProvider: new Cesium.OpenStreetMapImageryProvider({
-          url: 'https://tile.openstreetmap.org/'
-        })
+        imageryProvider: osmProvider
       });
       viewer.scene.globe.depthTestAgainstTerrain = false;
+
+      function switchToFallbackBasemap() {
+        if (basemapMode === 'GRID') return;
+        basemapMode = 'GRID';
+        viewer.imageryLayers.removeAll();
+        viewer.imageryLayers.addImageryProvider(fallbackProvider);
+      }
+      function switchToOsmBasemap() {
+        basemapMode = 'OSM';
+        osmErrorCount = 0;
+        viewer.imageryLayers.removeAll();
+        viewer.imageryLayers.addImageryProvider(osmProvider);
+      }
+
+      if (forceBasemap === 'grid') {
+        switchToFallbackBasemap();
+      } else {
+        switchToOsmBasemap();
+      }
+
+      // Avoid false fallback on transient tile errors: only switch after repeated failures.
+      osmProvider.errorEvent.addEventListener(() => {
+        if (forceBasemap === 'osm') {
+          return;
+        }
+        osmErrorCount += 1;
+        if (osmErrorCount >= 25) {
+          switchToFallbackBasemap();
+        }
+      });
+
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 22000.0)
       });
@@ -313,7 +355,7 @@
             ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
             : 'n/a';
 
-          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span>`;
+          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">basemap=${basemapMode}</span>`;
           upsertCesiumEntities(state.uavs);
           upsertCesiumLinks(state.uavs, state.links);
           updateDeck(state.uavs, state.links);

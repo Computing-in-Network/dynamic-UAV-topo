@@ -9,6 +9,25 @@ TOTAL_CORES="${2:-4}"
 VIS_PORT="${3:-8899}"
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
+"${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
+sleep 0.3
+
+if ! python3 - <<PY
+import socket,sys
+port=${VIS_PORT}
+s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("127.0.0.1", port))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+PY
+then
+  local_next_port="$((VIS_PORT + 1))"
+  echo "[fire_mission_demo_start] 端口 ${VIS_PORT} 已被占用，请换一个端口重试（例如 ${local_next_port}）"
+  exit 1
+fi
 
 set +u
 source /opt/ros/humble/setup.bash
@@ -52,4 +71,4 @@ VIS_PID=$!
 
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID}"
-echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}"
+echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"
