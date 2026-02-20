@@ -116,6 +116,23 @@
   - 拓扑 `status=PASS`
   - `observed_hz >= 0.8 * target_hz`
 
+## Fire Mission MVP（模拟 FDS 输出）
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899
+./scripts/fire_mission_demo_check.sh 8899 4 4
+./scripts/fire_mission_demo_stop.sh
+```
+
+说明：
+
+- `fire_adapter_demo.py` 按固定频率发布 `/env/fire_state`（热点移动轨迹）。
+- `mission_planner.py` 订阅 `/env/fire_state + /swarm/state`，发布 `/swarm/mission_targets`。
+- `swarm_uav_manager_node` 在 `mission_follow_enabled=true` 时会按目标点推进 UAV 位置。
+- 验收脚本会验证：
+  - mission 目标已发布
+  - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
+
 ## 快速查看状态
 
 ```bash

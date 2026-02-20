@@ -19,6 +19,11 @@
 - 新增 20 架机拓扑 profiling 脚本：`scripts/profile_topology_20.sh`
 - 新增遮挡翻转验证脚本：`scripts/test_occlusion_flip.sh`
 - 新增 100Hz 压力测试脚本：`scripts/stress_100hz.sh`（输出 `observed_hz` 与 `context_switch_hz`）
+- 新增 Fire Mission MVP：
+  - `scripts/fire_adapter_demo.py`（模拟 FDS 热点流）
+  - `scripts/mission_planner.py`（热点到 UAV 的贪心任务分配）
+  - `swarm_uav_manager_node` 支持 `mission_follow_enabled` 按目标点推进
+  - 一键脚本：`scripts/fire_mission_demo_start.sh` / `scripts/fire_mission_demo_check.sh`
 
 ## 下一步（按 Spec 推进）
 

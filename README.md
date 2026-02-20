@@ -154,6 +154,34 @@
 - `/swarm/state` 实测频率（`observed_hz`）
 - 系统 context switch 频率（`context_switch_hz`）
 
+## Fire Mission MVP（FDS 接入预演）
+
+说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
+
+一键启动：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899
+```
+
+一键停止：
+
+```bash
+./scripts/fire_mission_demo_stop.sh
+```
+
+一键验收：
+
+```bash
+./scripts/fire_mission_demo_check.sh 8899 4 4
+```
+
+通过标准：
+
+- 输出 `mission_msgs=... target_count=...`
+- 输出 `tracked_uav=... moved_m=...` 且位移明显大于 0
+- 输出 `[fire_mission_demo_check] PASS: 火场任务链路有效`
+
 ## 备注
 
 - 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。
