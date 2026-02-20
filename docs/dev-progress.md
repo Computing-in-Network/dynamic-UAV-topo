@@ -17,6 +17,7 @@
   - 内置帧耗时统计日志：`avg_ms/max_ms/status`
 - 可视化数据流统一为 `SwarmState.links`
 - 新增 20 架机拓扑 profiling 脚本：`scripts/profile_topology_20.sh`
+- 新增遮挡翻转验证脚本：`scripts/test_occlusion_flip.sh`
 
 ## 下一步（按 Spec 推进）
 

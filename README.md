@@ -116,6 +116,24 @@
 - `[profile_topology_20] ... avg_ms=... max_ms=... status=PASS`
 - `[profile_topology_20] PASS: 拓扑单帧耗时满足目标(<20ms)`
 
+## 遮挡翻转验证
+
+```bash
+./scripts/test_occlusion_flip.sh
+```
+
+参数：
+
+- 第1个：输入 Topic（默认 `/swarm/test_state_raw`）
+- 第2个：输出 Topic（默认 `/swarm/test_state`）
+- 第3个：遮挡高度差阈值米（默认 `35.0`）
+- 第4个：单阶段超时秒（默认 `8`）
+
+通过标准：
+
+- 输出 `occluded_first=True occluded_second=False`
+- 输出 `[test_occlusion_flip] PASS: is_occluded 已从 true 翻转为 false`
+
 ## 备注
 
 - 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。

@@ -90,6 +90,18 @@
 - `swarm_topology_analyzer_node` 会按窗口打印 `profile frames=... avg_ms=... max_ms=...`。
 - 若最新窗口 `status=PASS`，脚本返回成功。
 
+## 遮挡翻转验证
+
+```bash
+./scripts/test_occlusion_flip.sh
+```
+
+说明：
+
+- 脚本会构造两阶段双机输入并发送到测试 Topic。
+- 第一阶段使用大高度差（期望 `is_occluded=true`），第二阶段使用小高度差（期望 `is_occluded=false`）。
+- 输出通过标准为 `occluded_first=True occluded_second=False`。
+
 ## 快速查看状态
 
 ```bash
