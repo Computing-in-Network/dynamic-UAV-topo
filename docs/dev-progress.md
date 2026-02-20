@@ -13,7 +13,10 @@
   - 订阅 `/swarm/state_raw`，发布 `/swarm/state`
   - 生成 `links`（距离阈值、权重归一化）
   - 阶段性 `is_occluded` 判定（高度差近似）
+  - 可配置遮挡模式：`occlusion_mode=none|altitude_gap`
+  - 内置帧耗时统计日志：`avg_ms/max_ms/status`
 - 可视化数据流统一为 `SwarmState.links`
+- 新增 20 架机拓扑 profiling 脚本：`scripts/profile_topology_20.sh`
 
 ## 下一步（按 Spec 推进）
 

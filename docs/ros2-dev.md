@@ -78,6 +78,18 @@
 
 - 若指定端口被占用，脚本会自动使用附近可用端口并在 PASS 行打印最终端口。
 
+## 20 架机拓扑 Profiling
+
+```bash
+./scripts/profile_topology_20.sh 20 20 100 8 20
+```
+
+说明：
+
+- 脚本会启动 `swarm_uav_manager_node`（输出 `/swarm/state_raw`）和 `swarm_topology_analyzer_node`（输出 `/swarm/state`）。
+- `swarm_topology_analyzer_node` 会按窗口打印 `profile frames=... avg_ms=... max_ms=...`。
+- 若最新窗口 `status=PASS`，脚本返回成功。
+
 ## 快速查看状态
 
 ```bash
