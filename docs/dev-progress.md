@@ -27,6 +27,5 @@
 
 ## 下一步（按 Spec 推进）
 
-1. 将 `is_occluded` 从高度差近似切换到真实地形/场景遮挡检测接口。
-2. 为 `Node_Topology_Analyzer` 增加 20 架机单帧耗时 profiling 脚本（目标 < 20ms）。
-3. 新增遮挡翻转测试场景（固定两机轨迹，验证 `is_occluded` 翻转）。
+- 详细计划见：`docs/next-plan.md`
+- 当前优先级：FDS 真实数据接入、火区扩展渲染、任务规划稳态优化。

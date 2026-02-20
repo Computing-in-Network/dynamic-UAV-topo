@@ -3,25 +3,29 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PIDS_FILE="${ROOT_DIR}/.fire_demo_pids"
+PORT_FILE="${ROOT_DIR}/.fire_demo_port"
 
 INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-4}"
 VIS_PORT="${3:-8899}"
 
-"${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
+"${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" "${VIS_PORT}" >/dev/null 2>&1 || true
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
-sleep 0.3
 
 if ! python3 - <<PY
-import socket,sys
+import socket,sys,time
 port=${VIS_PORT}
-s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.bind(("127.0.0.1", port))
-except OSError:
-    sys.exit(1)
-finally:
-    s.close()
+deadline=time.time()+4.0
+while time.time()<deadline:
+    s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        sys.exit(0)
+    except OSError:
+        time.sleep(0.2)
+    finally:
+        s.close()
+sys.exit(1)
 PY
 then
   local_next_port="$((VIS_PORT + 1))"
@@ -70,5 +74,6 @@ SWARM_VIS_PORT="${VIS_PORT}" LD_LIBRARY_PATH="/opt/ros/humble/lib:/opt/ros/humbl
 VIS_PID=$!
 
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
+echo "${VIS_PORT}" > "${PORT_FILE}"
 echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID}"
 echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"

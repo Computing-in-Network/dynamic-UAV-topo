@@ -300,15 +300,31 @@
           const lat = h.position[0];
           const alt = h.position[2];
           const color = fireColor(h.intensity || 0);
-          const pixel = 12 + Math.round((h.intensity || 0.5) * 12);
+          const intensity = (h.intensity || 0.5);
+          const pixel = 20 + Math.round(intensity * 20);
+          const radius = 60 + intensity * 120;
           let e = hotspotMap.get(h.id);
           if (!e) {
             e = viewer.entities.add({
               id: `fire:${h.id}`,
               position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
-              point: { pixelSize: pixel, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
+              point: { pixelSize: pixel, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+              polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]),
+                width: 2,
+                material: Cesium.Color.fromBytes(239, 68, 68, 180)
+              },
+              ellipse: {
+                semiMinorAxis: radius,
+                semiMajorAxis: radius,
+                height: 0,
+                material: Cesium.Color.fromBytes(239, 68, 68, 52),
+                outline: true,
+                outlineColor: Cesium.Color.fromBytes(239, 68, 68, 180),
+                outlineWidth: 1
+              },
               label: {
-                text: `F ${h.id}`,
+                text: `FIRE ${h.id}`,
                 font: '13px JetBrains Mono',
                 fillColor: Cesium.Color.WHITE,
                 style: Cesium.LabelStyle.FILL_AND_OUTLINE,
@@ -323,6 +339,9 @@
             e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
             e.point.pixelSize = pixel;
             e.point.color = color;
+            e.polyline.positions = Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]);
+            e.ellipse.semiMinorAxis = radius;
+            e.ellipse.semiMajorAxis = radius;
           }
         }
         for (const [id, entity] of hotspotMap.entries()) {

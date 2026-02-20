@@ -158,6 +158,12 @@
 
 说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
 
+已实现可视化叠加：
+
+- 火情热点图层（`fire_hotspots`）：地图显示火点标记、地面影响圈、强度颜色。
+- 任务图层（`mission_targets`）：显示 UAV 到任务目标的虚线。
+- 右上角状态摘要：`fire`、`max_fire`、`mission`、`basemap`。
+
 一键启动：
 
 ```bash
@@ -167,7 +173,7 @@
 一键停止：
 
 ```bash
-./scripts/fire_mission_demo_stop.sh
+./scripts/fire_mission_demo_stop.sh 8899
 ```
 
 一键验收：
@@ -181,6 +187,12 @@
 - 输出 `mission_msgs=... target_count=...`
 - 输出 `tracked_uav=... moved_m=...` 且位移明显大于 0
 - 输出 `[fire_mission_demo_check] PASS: 火场任务链路有效`
+
+可视化地址与底图模式：
+
+- 默认：`http://127.0.0.1:8899/cesium`
+- 强制在线底图：`http://127.0.0.1:8899/cesium?basemap=osm`
+- 强制网格底图：`http://127.0.0.1:8899/cesium?basemap=grid`
 
 ## 备注
 
