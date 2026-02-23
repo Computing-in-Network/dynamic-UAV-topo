@@ -43,7 +43,7 @@
       }
       .side-inner {
         display: grid;
-        grid-template-rows: auto auto 200px 1fr;
+        grid-template-rows: auto auto auto 180px 1fr;
         height: 100%;
       }
       .legend {
@@ -77,6 +77,37 @@
         color: var(--muted);
         font-family: "JetBrains Mono", monospace;
       }
+      .raw-panel {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .raw-title {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .raw-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .raw-list {
+        max-height: 76px;
+        overflow: auto;
+        font-family: "JetBrains Mono", monospace;
+        color: #c9dbff;
+      }
+      .raw-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 2px 0;
+      }
+      .trend-up { color: #ef4444; }
+      .trend-down { color: #22c55e; }
+      .trend-same { color: #8aa4d9; }
       .meta {
         padding: 12px;
         border-bottom: 1px solid var(--line);
@@ -131,7 +162,7 @@
       }
       @media (max-width: 1024px) {
         .layout { grid-template-columns: 1fr; }
-        .side-inner { grid-template-rows: auto auto 160px 1fr; }
+        .side-inner { grid-template-rows: auto auto auto 150px 1fr; }
       }
     </style>
   </head>
@@ -147,6 +178,13 @@
             <div class="legend-row"><span class="legend-swatch swatch-mid"></span><span>中危：0.60 - 0.84</span></div>
             <div class="legend-row"><span class="legend-swatch swatch-low"></span><span>低危：< 0.60</span></div>
             <div class="legend-max" id="legend-max">max_fire=n/a</div>
+          </div>
+          <div class="raw-panel" id="raw-panel">
+            <div class="raw-title">FDS 原始层（/env/fds_raw）</div>
+            <div class="raw-stats" id="raw-stats">
+              <span class="badge">sensors=0</span><span class="badge">max=n/a</span><span class="badge">min=n/a</span><span class="badge">avg=n/a</span>
+            </div>
+            <div class="raw-list" id="raw-list">等待 FDS 原始数据...</div>
           </div>
           <div id="deck"></div>
           <div class="table-wrap">
@@ -174,10 +212,21 @@
         document.write('<script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"><\/script>');
       }
 
-      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [], mission_status: [] };
+      const state = {
+        timestamp: 0,
+        uavs: [],
+        links: [],
+        fire_hotspots: [],
+        mission_targets: [],
+        mission_status: [],
+        fds_raw: {}
+      };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
       const legendMax = document.getElementById('legend-max');
+      const rawStats = document.getElementById('raw-stats');
+      const rawList = document.getElementById('raw-list');
+      const rawPrevValues = new Map();
       const layerState = {
         showHotspot: true,
         showRegion: true,
@@ -565,7 +614,10 @@
               onHover: info => {
                 const d = info.object;
                 if (d) {
-                  meta.textContent = `timestamp=${state.timestamp} uav_count=${state.uavs.length} | hover=${d.id} alt=${d.y.toFixed(1)} battery=${d.battery.toFixed(1)}`;
+                  const statusEl = document.getElementById('meta-status');
+                  if (statusEl) {
+                    statusEl.textContent = `timestamp=${state.timestamp} uav_count=${state.uavs.length} hover=${d.id} alt=${d.y.toFixed(1)} battery=${d.battery.toFixed(1)}`;
+                  }
                 }
               }
             })
@@ -591,6 +643,67 @@
         }
       }
 
+      function renderFdsRaw(rawObj) {
+        const valuesObj = rawObj && typeof rawObj === 'object' && rawObj.values && typeof rawObj.values === 'object'
+          ? rawObj.values
+          : {};
+        const entries = Object.entries(valuesObj)
+          .filter(([, v]) => Number.isFinite(Number(v)))
+          .map(([k, v]) => [k, Number(v)])
+          .sort((a, b) => b[1] - a[1]);
+
+        if (!entries.length) {
+          if (rawStats) {
+            rawStats.innerHTML = '<span class="badge">sensors=0</span><span class="badge">max=n/a</span><span class="badge">min=n/a</span><span class="badge">avg=n/a</span>';
+          }
+          if (rawList) {
+            rawList.textContent = '等待 FDS 原始数据...';
+          }
+          rawPrevValues.clear();
+          return;
+        }
+
+        const nums = entries.map(([, v]) => v);
+        const max = Math.max(...nums);
+        const min = Math.min(...nums);
+        const avg = nums.reduce((s, v) => s + v, 0) / nums.length;
+        if (rawStats) {
+          rawStats.innerHTML =
+            `<span class="badge">sensors=${entries.length}</span>` +
+            `<span class="badge">max=${max.toFixed(2)}</span>` +
+            `<span class="badge">min=${min.toFixed(2)}</span>` +
+            `<span class="badge">avg=${avg.toFixed(2)}</span>`;
+        }
+
+        if (rawList) {
+          rawList.innerHTML = entries
+            .map(([name, val]) => {
+              const prev = rawPrevValues.get(name);
+              let trendClass = 'trend-same';
+              let trendText = '-';
+              if (Number.isFinite(prev)) {
+                const delta = val - prev;
+                if (Math.abs(delta) >= 0.01) {
+                  if (delta > 0) {
+                    trendClass = 'trend-up';
+                    trendText = `+${delta.toFixed(2)}`;
+                  } else {
+                    trendClass = 'trend-down';
+                    trendText = delta.toFixed(2);
+                  }
+                }
+              }
+              return `<div class="raw-item"><span>${name}</span><span>${val.toFixed(2)} <span class="${trendClass}">${trendText}</span></span></div>`;
+            })
+            .join('');
+        }
+
+        rawPrevValues.clear();
+        for (const [name, val] of entries) {
+          rawPrevValues.set(name, val);
+        }
+      }
+
       async function tick() {
         try {
           const res = await fetch('/api/swarm_state', {cache: 'no-store'});
@@ -601,6 +714,7 @@
           state.fire_hotspots = next.fire_hotspots || [];
           state.mission_targets = next.mission_targets || [];
           state.mission_status = next.mission_status || [];
+          state.fds_raw = next.fds_raw || {};
           const missionExec = state.mission_status.filter(x => x.state === 2).length;
           const missionDone = state.mission_status.filter(x => x.state === 3).length;
           const missionFail = state.mission_status.filter(x => x.state === 4).length;
@@ -628,12 +742,16 @@
 
           const statusEl = document.getElementById('meta-status');
           if (statusEl) {
-            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">basemap=${basemapMode}</span>`;
+            const fdsRawCount = state.fds_raw && state.fds_raw.values && typeof state.fds_raw.values === 'object'
+              ? Object.keys(state.fds_raw.values).length
+              : 0;
+            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">fds_raw=${fdsRawCount}</span><span class="badge">basemap=${basemapMode}</span>`;
           }
           upsertCesiumEntities(state.uavs);
           upsertCesiumLinks(state.uavs, state.links);
           upsertFireHotspots(state.fire_hotspots, state.timestamp || Date.now());
           upsertMissionLines(state.uavs, state.mission_targets);
+          renderFdsRaw(state.fds_raw);
           updateDeck(state.uavs, state.links);
           updateTable(state.uavs, state.mission_status);
         } catch (_) {

@@ -10,6 +10,7 @@ from typing import Any
 
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 from swarm_interfaces.msg import FireState, Hotspot
 
 
@@ -35,6 +36,7 @@ class Frame:
     timestamp_ms: int
     sim_time_s: float
     hotspots: list[LocalHotspot]
+    raw_values: dict[str, float] | None = None
 
 
 @dataclass
@@ -100,6 +102,7 @@ def parse_json_frames(path: Path) -> tuple[Origin, list[Frame]]:
                     timestamp_ms=int(f["timestamp_ms"]),
                     sim_time_s=float(f.get("sim_time_s", 0.0)),
                     hotspots=to_hotspots(list(f.get("hotspots_local_m", []))),
+                    raw_values={},
                 )
             )
     else:
@@ -108,6 +111,7 @@ def parse_json_frames(path: Path) -> tuple[Origin, list[Frame]]:
                 timestamp_ms=int(obj["timestamp_ms"]),
                 sim_time_s=float(obj.get("sim_time_s", 0.0)),
                 hotspots=to_hotspots(list(obj.get("hotspots_local_m", []))),
+                raw_values={},
             )
         )
     if not frames:
@@ -135,7 +139,7 @@ def parse_csv_frames(path: Path) -> tuple[Origin, list[Frame]]:
                 )
             )
             sim_time[ts] = float(row.get("sim_time_s", 0.0))
-    frames = [Frame(timestamp_ms=ts, sim_time_s=sim_time.get(ts, 0.0), hotspots=grouped[ts]) for ts in sorted(grouped)]
+    frames = [Frame(timestamp_ms=ts, sim_time_s=sim_time.get(ts, 0.0), hotspots=grouped[ts], raw_values={}) for ts in sorted(grouped)]
     if not frames:
         raise ValueError("csv input has no frames")
     return origin, frames
@@ -251,6 +255,7 @@ def parse_fds_devc_csv_frames(path: Path, mapping_path: Path) -> tuple[Origin | 
             continue
         timestamp_ms = int(time_s * 1000.0)
         hotspots: list[LocalHotspot] = []
+        raw_values: dict[str, float] = {}
         for col in mapping_cols:
             idx = name_to_idx.get(col.name, name_to_idx.get(col.name.lower(), -1))
             if idx < 0 or idx >= len(row):
@@ -258,6 +263,7 @@ def parse_fds_devc_csv_frames(path: Path, mapping_path: Path) -> tuple[Origin | 
             value = _to_float(row[idx], float("nan"))
             if math.isnan(value):
                 continue
+            raw_values[col.name] = value
             intensity = clamp01((value - col.value_min) / max(1e-6, (col.value_max - col.value_min)))
             spread = col.spread_base + intensity * col.spread_scale
             hotspots.append(
@@ -271,7 +277,7 @@ def parse_fds_devc_csv_frames(path: Path, mapping_path: Path) -> tuple[Origin | 
                 )
             )
         if hotspots:
-            frames.append(Frame(timestamp_ms=timestamp_ms, sim_time_s=time_s, hotspots=hotspots))
+            frames.append(Frame(timestamp_ms=timestamp_ms, sim_time_s=time_s, hotspots=hotspots, raw_values=raw_values))
 
     if not frames:
         raise ValueError("fds devc csv has no valid rows")
@@ -302,6 +308,8 @@ class FireAdapterFDS(Node):
         self.fail_on_bad_file = bool(self.declare_parameter("fail_on_bad_file", False).value)
 
         self.publisher = self.create_publisher(FireState, self.output_topic, 10)
+        self.raw_topic = str(self.declare_parameter("raw_topic", "/env/fds_raw").value)
+        self.raw_publisher = self.create_publisher(String, self.raw_topic, 10)
         self.frames: list[Frame] = []
         self.origin = Origin(self.origin_lat0, self.origin_lon0, self.origin_alt0_m)
         self.index = 0
@@ -430,6 +438,19 @@ class FireAdapterFDS(Node):
             hotspots.append(h)
         msg.hotspots = hotspots
         self.publisher.publish(msg)
+        self._publish_raw_frame(frame)
+
+    def _publish_raw_frame(self, frame: Frame) -> None:
+        if frame.raw_values is None:
+            return
+        payload = {
+            "timestamp_ms": int(frame.timestamp_ms),
+            "sim_time_s": float(frame.sim_time_s),
+            "values": {k: float(v) for k, v in sorted(frame.raw_values.items())},
+        }
+        s = String()
+        s.data = json.dumps(payload, ensure_ascii=False)
+        self.raw_publisher.publish(s)
 
     def _tick(self) -> None:
         if self.mode == "stream":

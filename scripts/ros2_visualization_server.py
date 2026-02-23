@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import json
 import ctypes
 import os
 import sys
@@ -11,6 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from glob import glob
+import json
 
 ros_lib_paths = [
     "/opt/ros/humble/lib",
@@ -26,6 +26,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from swarm_interfaces.msg import FireState, MissionPlan, MissionStatus, SwarmState
+    from std_msgs.msg import String
 except ModuleNotFoundError:
     ros_py_paths = [
         "/opt/ros/humble/local/lib/python3.10/dist-packages",
@@ -52,6 +53,7 @@ except ModuleNotFoundError:
     import rclpy
     from rclpy.node import Node
     from swarm_interfaces.msg import FireState, MissionPlan, MissionStatus, SwarmState
+    from std_msgs.msg import String
 
 
 class SwarmStateCache:
@@ -64,6 +66,7 @@ class SwarmStateCache:
             "fire_hotspots": [],
             "mission_targets": [],
             "mission_status": [],
+            "fds_raw": {},
         }
 
     def update_from_msg(self, msg: SwarmState) -> None:
@@ -96,6 +99,7 @@ class SwarmStateCache:
             "fire_hotspots": self._payload.get("fire_hotspots", []),
             "mission_targets": self._payload.get("mission_targets", []),
             "mission_status": self._payload.get("mission_status", []),
+            "fds_raw": self._payload.get("fds_raw", {}),
         }
 
         with self._lock:
@@ -142,6 +146,16 @@ class SwarmStateCache:
         with self._lock:
             self._payload["mission_status"] = items
 
+    def update_fds_raw(self, msg: String) -> None:
+        try:
+            obj = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(obj, dict):
+            return
+        with self._lock:
+            self._payload["fds_raw"] = obj
+
     def get(self) -> dict:
         with self._lock:
             return dict(self._payload)
@@ -154,14 +168,17 @@ class SwarmSubscriber(Node):
         fire_topic = os.environ.get("FIRE_STATE_TOPIC", "/env/fire_state")
         mission_topic = os.environ.get("MISSION_TOPIC", "/swarm/mission_targets")
         mission_status_topic = os.environ.get("MISSION_STATUS_TOPIC", "/swarm/mission_status")
+        fds_raw_topic = os.environ.get("FDS_RAW_TOPIC", "/env/fds_raw")
         self._swarm_sub = self.create_subscription(SwarmState, swarm_topic, self._on_swarm, 10)
         self._fire_sub = self.create_subscription(FireState, fire_topic, self._on_fire, 10)
         self._mission_sub = self.create_subscription(MissionPlan, mission_topic, self._on_mission, 10)
         self._mission_status_sub = self.create_subscription(
             MissionStatus, mission_status_topic, self._on_mission_status, 10
         )
+        self._fds_raw_sub = self.create_subscription(String, fds_raw_topic, self._on_fds_raw, 10)
         self.get_logger().info(
-            f"subscribe swarm={swarm_topic} fire={fire_topic} mission={mission_topic} mission_status={mission_status_topic}"
+            f"subscribe swarm={swarm_topic} fire={fire_topic} mission={mission_topic} "
+            f"mission_status={mission_status_topic} fds_raw={fds_raw_topic}"
         )
 
     def _on_swarm(self, msg: SwarmState) -> None:
@@ -175,6 +192,9 @@ class SwarmSubscriber(Node):
 
     def _on_mission_status(self, msg: MissionStatus) -> None:
         self._cache.update_mission_status(msg)
+
+    def _on_fds_raw(self, msg: String) -> None:
+        self._cache.update_fds_raw(msg)
 
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
