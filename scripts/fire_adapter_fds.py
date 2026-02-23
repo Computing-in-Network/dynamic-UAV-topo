@@ -211,15 +211,25 @@ def parse_fds_devc_csv_frames(path: Path, mapping_path: Path) -> tuple[Origin | 
     if not rows:
         raise ValueError("fds devc csv is empty")
 
-    header = [c.strip().strip('"') for c in rows[0]]
-    if not header or "time" not in header[0].lower():
-        raise ValueError("fds devc csv header must start with Time column")
+    # FDS devc.csv may place unit row before/after header row.
+    # Find the first row whose first column is "Time".
+    header_row_idx = -1
+    for i, row in enumerate(rows[:8]):
+        if not row:
+            continue
+        probe = row[0].strip().strip('"').lower()
+        if probe == "time":
+            header_row_idx = i
+            break
+    if header_row_idx < 0:
+        raise ValueError("fds devc csv header must contain Time column row")
 
-    data_start_idx = 1
-    if len(rows) > 1:
-        probe = rows[1][0].strip().strip('"').lower()
+    header = [c.strip().strip('"') for c in rows[header_row_idx]]
+    data_start_idx = header_row_idx + 1
+    if data_start_idx < len(rows):
+        probe = rows[data_start_idx][0].strip().strip('"').lower()
         if probe in ("s", "sec", "second", "seconds", "time"):
-            data_start_idx = 2
+            data_start_idx += 1
 
     name_to_idx: dict[str, int] = {}
     for i, name in enumerate(header):

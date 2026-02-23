@@ -48,6 +48,7 @@ trap cleanup EXIT
 "${ROOT_DIR}/scripts/fire_mission_fds_start.sh" \
   "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${VIS_PORT}" "${PLANNER_MODE}" \
   "${INPUT_CSV}" "${MAPPING_JSON}" "${FIRE_PUBLISH_HZ}" \
+  true "${INSTANCE_COUNT}" "${PROFILE_TARGET_MS}" \
   >/tmp/fds_pipeline_start.log 2>&1
 
 sleep 1
