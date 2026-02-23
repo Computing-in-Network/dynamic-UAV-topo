@@ -353,6 +353,7 @@
       const entityMap = new Map();
       const polylineMap = new Map();
       const hotspotMap = new Map();
+      const fireSubpointMap = new Map();
       const fireClusterMap = new Map();
       const missionLineMap = new Map();
       const hotspotRegionState = new Map();
@@ -642,6 +643,15 @@
         return [lat, lon];
       }
 
+      function hashString(s) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < s.length; i += 1) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+
       function toLocalMeters(lat, lon, lat0, lon0) {
         const x = (lon - lon0) * 111000.0 * Math.max(0.15, Math.cos(lat0 * Math.PI / 180.0));
         const y = (lat - lat0) * 111000.0;
@@ -728,16 +738,16 @@
 
       function upsertFireClusters(seeds) {
         const live = new Set();
-        const clusters = clusterFireSeeds(seeds).filter(c => c.length >= 2);
+        const clusters = clusterFireSeeds(seeds).filter(c => c.length >= 6);
         for (let i = 0; i < clusters.length; i += 1) {
           const c = clusters[i];
-          const key = `cluster:${c.map(x => x.id).sort().join('|')}`;
+          const key = `cluster:${c.map(x => x.id).sort().join('|')}:${i}`;
           live.add(key);
           const lat0 = c.reduce((s, x) => s + x.lat, 0) / c.length;
           const lon0 = c.reduce((s, x) => s + x.lon, 0) / c.length;
           const support = [];
           for (const s of c) {
-            const r = Math.max(28.0, Math.min(180.0, s.radius * 0.45));
+            const r = Math.max(8.0, Math.min(42.0, (s.radius || 20.0) * 0.35));
             for (let k = 0; k < 20; k += 1) {
               const a = (2 * Math.PI * k) / 20;
               const dx = Math.cos(a) * r;
@@ -781,6 +791,7 @@
 
       function upsertFireHotspots(hotspots, uavs, nowMs) {
         const live = new Set();
+        const liveSub = new Set();
         const clusterSeeds = [];
         let areaM2 = 0.0;
         let observedCount = 0;
@@ -788,33 +799,62 @@
           live.add(h.id);
           const lon = h.position[1];
           const lat = h.position[0];
-          const alt = h.position[2];
           const color = fireColor(h.intensity || 0);
           const intensity = (h.intensity || 0.5);
           const spread = Math.max(0, h.spread_mps || 0);
-          const pixel = 20 + Math.round(intensity * 20);
-          const nearestUavM = nearestUavDistanceMeters(h.position || [lat, lon, alt], uavs);
+          const nearestUavM = nearestUavDistanceMeters(h.position || [lat, lon, 0], uavs);
           const dyn = dynamicFireRadius(h.id, intensity, spread, nearestUavM, nowMs);
           const radius = dyn.radius;
-          clusterSeeds.push({ id: h.id, lat, lon, radius, intensity });
           areaM2 += Math.PI * radius * radius;
           if (dyn.observed) observedCount += 1;
+
+          // Generate multiple ground fire points for each hotspot.
+          const subCount = 12 + Math.round(intensity * 14);
+          const base = hashString(h.id);
+          const spreadR = Math.max(22.0, Math.min(170.0, radius * 0.42));
+          for (let i = 0; i < subCount; i += 1) {
+            const a0 = ((base % 360) * Math.PI / 180.0) + (2 * Math.PI * i / subCount);
+            const t = nowMs / 1000.0;
+            const wobble = 0.18 * Math.sin(t * 0.5 + i * 0.73);
+            const r0 = spreadR * (0.28 + 0.72 * ((i % 5) / 4));
+            const r = r0 * (1.0 + wobble);
+            const dx = Math.cos(a0 + wobble) * r;
+            const dy = Math.sin(a0 - wobble) * r * (0.78 + 0.22 * Math.sin(0.3 * i));
+            const [sLat, sLon] = offsetMetersToLatLon(lat, lon, dx, dy);
+            const sid = `${h.id}:s${i}`;
+            liveSub.add(sid);
+            clusterSeeds.push({ id: sid, lat: sLat, lon: sLon, radius: 16 + intensity * 12, intensity });
+            let se = fireSubpointMap.get(sid);
+            if (!se) {
+              se = viewer.entities.add({
+                id: `fire_sub:${sid}`,
+                position: Cesium.Cartesian3.fromDegrees(sLon, sLat, 0),
+                billboard: {
+                  image: FLAME_ICON,
+                  scale: 0.08 + intensity * 0.08,
+                  verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                  pixelOffset: new Cesium.Cartesian2(0, -1),
+                  show: layerState.showHotspot
+                }
+              });
+              fireSubpointMap.set(sid, se);
+            } else {
+              se.position = Cesium.Cartesian3.fromDegrees(sLon, sLat, 0);
+              se.billboard.scale = 0.08 + intensity * 0.08;
+              se.billboard.show = layerState.showHotspot;
+            }
+          }
+
           let e = hotspotMap.get(h.id);
           if (!e) {
             e = viewer.entities.add({
               id: `fire:${h.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
               billboard: {
                 image: FLAME_ICON,
-                scale: 0.46 + intensity * 0.48,
+                scale: 0.12 + intensity * 0.12,
                 verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
                 pixelOffset: new Cesium.Cartesian2(0, -2),
-                show: layerState.showHotspot
-              },
-              polyline: {
-                positions: Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]),
-                width: 2,
-                material: Cesium.Color.fromBytes(239, 68, 68, 180),
                 show: layerState.showHotspot
               },
               label: {
@@ -831,12 +871,10 @@
             });
             hotspotMap.set(h.id, e);
           } else {
-            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
-            e.billboard.scale = 0.46 + intensity * 0.48;
+            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
+            e.billboard.scale = 0.12 + intensity * 0.12;
             e.billboard.show = layerState.showHotspot;
-            e.polyline.show = layerState.showHotspot;
             e.label.show = layerState.showHotspot;
-            e.polyline.positions = Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]);
           }
 
         }
@@ -845,6 +883,12 @@
             viewer.entities.remove(entity);
             hotspotMap.delete(id);
             hotspotRegionState.delete(id);
+          }
+        }
+        for (const [sid, entity] of fireSubpointMap.entries()) {
+          if (!liveSub.has(sid)) {
+            viewer.entities.remove(entity);
+            fireSubpointMap.delete(sid);
           }
         }
         upsertFireClusters(clusterSeeds);
