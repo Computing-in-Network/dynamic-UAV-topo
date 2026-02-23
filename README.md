@@ -238,6 +238,12 @@ FDS 端到端压测（Issue #8）：
 - 指标：`api_rtt`、`state_hz`、`plan/exec/done latency`、拓扑 profile
 - 文档：`docs/fds-stress.md`
 
+FDS 故障注入恢复（Issue #9）：
+
+- 脚本：`./scripts/test_fire_adapter_recovery.sh 6 6 8913 coverage`
+- 注入：断流、坏包、时钟漂移
+- 文档：`docs/fds-fault-injection.md`
+
 可视化地址与底图模式：
 
 - 默认：`http://127.0.0.1:8899/cesium`
