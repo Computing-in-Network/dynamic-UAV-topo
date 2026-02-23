@@ -53,6 +53,23 @@
         font-size: 12px;
         color: var(--muted);
       }
+      .layers {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .layers label {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: var(--text);
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(7, 17, 39, 0.35);
+      }
       #deck {
         border-bottom: 1px solid var(--line);
         position: relative;
@@ -110,8 +127,14 @@
       const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [] };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
+      const layerState = {
+        showHotspot: true,
+        showRegion: true,
+        showMission: true
+      };
       let basemapMode = 'OSM';
       let osmErrorCount = 0;
+      let controlsInstalled = false;
       const forceBasemap = new URLSearchParams(window.location.search).get('basemap');
 
       Cesium.Ion.defaultAccessToken = undefined;
@@ -176,6 +199,33 @@
       const polylineMap = new Map();
       const hotspotMap = new Map();
       const missionLineMap = new Map();
+      const hotspotFirstSeen = new Map();
+
+      function installLayerToggles() {
+        if (controlsInstalled) return;
+        controlsInstalled = true;
+        meta.innerHTML = `<div id="meta-status">初始化中...</div>`;
+        const statusEl = document.getElementById('meta-status');
+        if (!statusEl) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'layers';
+        wrap.innerHTML = `
+          <label><input type="checkbox" id="ly-hotspot" checked />热点点</label>
+          <label><input type="checkbox" id="ly-region" checked />火区面</label>
+          <label><input type="checkbox" id="ly-mission" checked />任务线</label>
+        `;
+        meta.appendChild(wrap);
+        document.getElementById('ly-hotspot').addEventListener('change', (e) => {
+          layerState.showHotspot = !!e.target.checked;
+        });
+        document.getElementById('ly-region').addEventListener('change', (e) => {
+          layerState.showRegion = !!e.target.checked;
+        });
+        document.getElementById('ly-mission').addEventListener('change', (e) => {
+          layerState.showMission = !!e.target.checked;
+        });
+      }
+      installLayerToggles();
 
       const deckgl = new deck.Deck({
         parent: document.getElementById('deck'),
@@ -292,27 +342,35 @@
         return Cesium.Color.fromBytes(250, 204, 21, 200);
       }
 
-      function upsertFireHotspots(hotspots) {
+      function upsertFireHotspots(hotspots, nowMs) {
         const live = new Set();
         for (const h of hotspots || []) {
           live.add(h.id);
+          if (!hotspotFirstSeen.has(h.id)) {
+            hotspotFirstSeen.set(h.id, nowMs);
+          }
+          const seenMs = hotspotFirstSeen.get(h.id) || nowMs;
+          const elapsedS = Math.max(0, (nowMs - seenMs) / 1000.0);
           const lon = h.position[1];
           const lat = h.position[0];
           const alt = h.position[2];
           const color = fireColor(h.intensity || 0);
           const intensity = (h.intensity || 0.5);
+          const spread = Math.max(0, h.spread_mps || 0);
           const pixel = 20 + Math.round(intensity * 20);
-          const radius = 60 + intensity * 120;
+          // Region expansion model (M1): base radius + time * spread.
+          const radius = 60 + intensity * 140 + elapsedS * spread * 8.0;
           let e = hotspotMap.get(h.id);
           if (!e) {
             e = viewer.entities.add({
               id: `fire:${h.id}`,
               position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
-              point: { pixelSize: pixel, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+              point: { pixelSize: pixel, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2, show: layerState.showHotspot },
               polyline: {
                 positions: Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]),
                 width: 2,
-                material: Cesium.Color.fromBytes(239, 68, 68, 180)
+                material: Cesium.Color.fromBytes(239, 68, 68, 180),
+                show: layerState.showHotspot
               },
               ellipse: {
                 semiMinorAxis: radius,
@@ -321,7 +379,8 @@
                 material: Cesium.Color.fromBytes(239, 68, 68, 52),
                 outline: true,
                 outlineColor: Cesium.Color.fromBytes(239, 68, 68, 180),
-                outlineWidth: 1
+                outlineWidth: 1,
+                show: layerState.showRegion
               },
               label: {
                 text: `FIRE ${h.id}`,
@@ -331,7 +390,8 @@
                 outlineColor: Cesium.Color.BLACK,
                 outlineWidth: 2,
                 verticalOrigin: Cesium.VerticalOrigin.TOP,
-                pixelOffset: new Cesium.Cartesian2(0, 14)
+                pixelOffset: new Cesium.Cartesian2(0, 14),
+                show: layerState.showHotspot
               }
             });
             hotspotMap.set(h.id, e);
@@ -339,15 +399,20 @@
             e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
             e.point.pixelSize = pixel;
             e.point.color = color;
+            e.point.show = layerState.showHotspot;
+            e.polyline.show = layerState.showHotspot;
+            e.label.show = layerState.showHotspot;
             e.polyline.positions = Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]);
             e.ellipse.semiMinorAxis = radius;
             e.ellipse.semiMajorAxis = radius;
+            e.ellipse.show = layerState.showRegion;
           }
         }
         for (const [id, entity] of hotspotMap.entries()) {
           if (!live.has(id)) {
             viewer.entities.remove(entity);
             hotspotMap.delete(id);
+            hotspotFirstSeen.delete(id);
           }
         }
       }
@@ -375,12 +440,14 @@
                 material: new Cesium.PolylineDashMaterialProperty({
                   color: Cesium.Color.fromBytes(59, 130, 246, 220),
                   dashLength: 12
-                })
+                }),
+                show: layerState.showMission
               }
             });
             missionLineMap.set(key, e);
           } else {
             e.polyline.positions = positions;
+            e.polyline.show = layerState.showMission;
           }
         }
         for (const [k, e] of missionLineMap.entries()) {
@@ -466,16 +533,34 @@
           const maxFire = state.fire_hotspots.length
             ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
             : 'n/a';
+          const areaKm2 = state.fire_hotspots.length
+            ? (
+              state.fire_hotspots
+                .map(h => {
+                  const seenMs = hotspotFirstSeen.get(h.id) || state.timestamp;
+                  const elapsedS = Math.max(0, (state.timestamp - seenMs) / 1000.0);
+                  const r = 60 + (h.intensity || 0.5) * 140 + elapsedS * Math.max(0, (h.spread_mps || 0)) * 8.0;
+                  return Math.PI * r * r;
+                })
+                .reduce((a, b) => a + b, 0) / 1_000_000.0
+            ).toFixed(3)
+            : '0.000';
 
-          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span>`;
+          const statusEl = document.getElementById('meta-status');
+          if (statusEl) {
+            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span>`;
+          }
           upsertCesiumEntities(state.uavs);
           upsertCesiumLinks(state.uavs, state.links);
-          upsertFireHotspots(state.fire_hotspots);
+          upsertFireHotspots(state.fire_hotspots, state.timestamp || Date.now());
           upsertMissionLines(state.uavs, state.mission_targets);
           updateDeck(state.uavs, state.links);
           updateTable(state.uavs);
         } catch (_) {
-          meta.textContent = '数据流中断，等待恢复...';
+          const statusEl = document.getElementById('meta-status');
+          if (statusEl) {
+            statusEl.textContent = '数据流中断，等待恢复...';
+          }
         }
       }
 
