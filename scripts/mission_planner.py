@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import rclpy
 from rclpy.node import Node
@@ -43,7 +43,7 @@ class MissionPlanner(Node):
 
         self.cfg = PlannerConfig(
             mode=str(self.declare_parameter("planner_mode", "greedy").value).strip().lower(),
-            hotspot_per_uav=int(self.declare_parameter("hotspot_per_uav", 1).value),
+            hotspot_per_uav=int(self.declare_parameter("hotspot_per_uav", 3).value),
             min_intensity=float(self.declare_parameter("min_intensity", 0.2).value),
             coverage_revisit_sec=float(self.declare_parameter("coverage_revisit_sec", 12.0).value),
             coverage_priority_decay=float(self.declare_parameter("coverage_priority_decay", 0.45).value),
@@ -116,22 +116,18 @@ class MissionPlanner(Node):
     def _plan_greedy(self, uavs: List, hotspots: List) -> List[Tuple[str, str, List[float], float, str]]:
         hotspots_sorted = sorted(hotspots, key=lambda h: float(h.intensity), reverse=True)
         max_targets = min(len(uavs), max(1, self.cfg.hotspot_per_uav * len(hotspots_sorted)))
-        used_uav: Set[str] = set()
         out: List[Tuple[str, str, List[float], float, str]] = []
-
-        for hs in hotspots_sorted:
+        for u in uavs:
             best = None
-            for u in uavs:
-                if u.id in used_uav:
-                    continue
+            for hs in hotspots_sorted:
                 d = distance_score_m(list(u.position), list(hs.position))
-                if best is None or d < best[0]:
-                    best = (d, u)
+                score = float(hs.intensity) - 0.35 * min(1.0, d / max(1.0, self.cfg.coverage_distance_norm_m))
+                if best is None or score > best[0]:
+                    best = (score, hs)
             if best is None:
                 continue
-            _, u = best
-            used_uav.add(u.id)
-            out.append((u.id, hs.id, list(hs.position), float(hs.intensity), f"track:{hs.id}:greedy"))
+            _, hs = best
+            out.append((u.id, hs.id, list(hs.position), float(hs.intensity), f"track:{hs.id}:greedy_follow"))
             if len(out) >= max_targets:
                 break
         return out
@@ -220,6 +216,22 @@ class MissionPlanner(Node):
             _, priority_hint, u = best
             out.append((u.id, hs.id, list(hs.position), priority_hint, f"track:{hs.id}:coverage"))
             remaining_uav.pop(u.id, None)
+
+        # Step-2c: if UAVs still remain, allow multi-UAV follow on urgent hotspots.
+        if remaining_uav and len(out) < max_targets:
+            follow_pool = selected if selected else hotspots
+            for u in list(remaining_uav.values()):
+                best = None
+                for hs in follow_pool:
+                    score, priority_hint = self._pair_score(u, hs, now_sec)
+                    if best is None or score > best[0]:
+                        best = (score, priority_hint, hs)
+                if best is None:
+                    continue
+                _, priority_hint, hs = best
+                out.append((u.id, hs.id, list(hs.position), priority_hint, f"track:{hs.id}:coverage_follow"))
+                if len(out) >= max_targets:
+                    break
 
         return out
 

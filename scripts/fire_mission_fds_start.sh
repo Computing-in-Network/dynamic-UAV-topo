@@ -91,6 +91,7 @@ FIRE_PID=$!
 python3 "${ROOT_DIR}/scripts/mission_planner.py" \
   --ros-args -p fire_topic:=/env/fire_state -p swarm_topic:=/swarm/state -p plan_topic:=/swarm/mission_targets \
   -p planner_mode:="${PLANNER_MODE}" -p coverage_revisit_sec:=12.0 \
+  -p hotspot_per_uav:=8 -p min_intensity:=0.12 \
   > /tmp/mission_planner.log 2>&1 &
 PLANNER_PID=$!
 
