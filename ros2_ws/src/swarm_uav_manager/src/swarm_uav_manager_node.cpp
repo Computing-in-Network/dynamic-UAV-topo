@@ -109,11 +109,65 @@ class SwarmUavManagerNode : public rclcpp::Node {
     auto cur = cur_it->second;
     const auto& target = target_it->second;
     const double dt = 1.0 / static_cast<double>(publish_hz_);
-    const double max_latlon_step_deg = (mission_speed_mps_ * dt) / 111000.0;
-    const double max_alt_step = mission_alt_speed_mps_ * dt;
-    cur[0] = ClampStep(cur[0], target[0], max_latlon_step_deg);
-    cur[1] = ClampStep(cur[1], target[1], max_latlon_step_deg);
-    cur[2] = ClampStep(cur[2], target[2], max_alt_step);
+    auto vel_it = mission_velocity_mps_.find(uav_id);
+    if (vel_it == mission_velocity_mps_.end()) {
+      mission_velocity_mps_[uav_id] = {0.0, 0.0, 0.0};
+      vel_it = mission_velocity_mps_.find(uav_id);
+    }
+    auto vel = vel_it->second;
+
+    // Convert lat/lon delta to local meters at current latitude.
+    constexpr double kPi = 3.14159265358979323846;
+    const double lat_scale = 111000.0;
+    const double lon_scale = 111000.0 * std::max(0.15, std::cos(cur[0] * kPi / 180.0));
+    const double dx_m = (target[1] - cur[1]) * lon_scale;
+    const double dy_m = (target[0] - cur[0]) * lat_scale;
+    const double dz_m = target[2] - cur[2];
+    const double dist_xy = std::hypot(dx_m, dy_m);
+
+    // Desired speed profile: slow down near target, keep smooth cruise otherwise.
+    const double arrive_slow_m = 80.0;
+    const double speed_scale = std::clamp(dist_xy / arrive_slow_m, 0.20, 1.0);
+    const double desired_speed = mission_speed_mps_ * speed_scale;
+    double desired_vx = 0.0;
+    double desired_vy = 0.0;
+    if (dist_xy > 1e-3) {
+      desired_vx = (dx_m / dist_xy) * desired_speed;
+      desired_vy = (dy_m / dist_xy) * desired_speed;
+    }
+    const double desired_vz = std::clamp(dz_m / std::max(1e-3, dt), -mission_alt_speed_mps_, mission_alt_speed_mps_);
+
+    // First-order velocity smoothing to avoid abrupt heading changes.
+    const double alpha = 0.26;
+    vel[0] = (1.0 - alpha) * vel[0] + alpha * desired_vx;
+    vel[1] = (1.0 - alpha) * vel[1] + alpha * desired_vy;
+    vel[2] = (1.0 - alpha) * vel[2] + alpha * desired_vz;
+
+    const double vxy = std::hypot(vel[0], vel[1]);
+    if (vxy > mission_speed_mps_) {
+      const double scale = mission_speed_mps_ / std::max(1e-6, vxy);
+      vel[0] *= scale;
+      vel[1] *= scale;
+    }
+    vel[2] = std::clamp(vel[2], -mission_alt_speed_mps_, mission_alt_speed_mps_);
+
+    cur[0] += (vel[1] * dt) / lat_scale;
+    cur[1] += (vel[0] * dt) / lon_scale;
+    cur[2] += vel[2] * dt;
+
+    // Snap and damp near target to avoid tiny oscillations.
+    if (dist_xy < 5.0) {
+      cur[0] = target[0];
+      cur[1] = target[1];
+      vel[0] *= 0.25;
+      vel[1] *= 0.25;
+    }
+    if (std::abs(target[2] - cur[2]) < 1.2) {
+      cur[2] = target[2];
+      vel[2] *= 0.25;
+    }
+
+    mission_velocity_mps_[uav_id] = vel;
     mission_current_pose_[uav_id] = cur;
     return cur;
   }
@@ -190,6 +244,7 @@ class SwarmUavManagerNode : public rclcpp::Node {
   int publish_hz_{5};
   std::unordered_map<std::string, std::array<double, 3>> mission_targets_;
   std::unordered_map<std::string, std::array<double, 3>> mission_current_pose_;
+  std::unordered_map<std::string, std::array<double, 3>> mission_velocity_mps_;
 };
 
 }  // namespace
