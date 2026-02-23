@@ -94,6 +94,7 @@ class MissionPlanner(Node):
 
         if not assignments:
             return
+        assignments = self._spread_assignments(assignments)
 
         out = MissionPlan()
         out.stamp = self.get_clock().now().to_msg()
@@ -113,21 +114,59 @@ class MissionPlanner(Node):
         out.targets = targets
         self.pub_plan.publish(out)
 
+    @staticmethod
+    def _offset_wgs84(pos: List[float], dx_m: float, dy_m: float) -> List[float]:
+        lat = float(pos[0]) + dy_m / 111000.0
+        lon_scale = 111000.0 * max(0.15, math.cos(math.radians(float(pos[0]))))
+        lon = float(pos[1]) + dx_m / lon_scale
+        return [lat, lon, float(pos[2])]
+
+    def _spread_assignments(
+        self, assignments: List[Tuple[str, str, List[float], float, str]]
+    ) -> List[Tuple[str, str, List[float], float, str]]:
+        # When many UAVs follow one hotspot, spread them on a small orbit ring
+        # to avoid visual/physical crowding at exactly the same coordinate.
+        by_hotspot: Dict[str, List[Tuple[str, str, List[float], float, str]]] = {}
+        for item in assignments:
+            by_hotspot.setdefault(item[1], []).append(item)
+
+        out: List[Tuple[str, str, List[float], float, str]] = []
+        for hs_id, items in by_hotspot.items():
+            if len(items) <= 1:
+                out.extend(items)
+                continue
+            n = len(items)
+            ring_r = min(160.0, 40.0 + 14.0 * n)
+            for i, (uid, _hid, pos, pri, reason) in enumerate(items):
+                a = (2.0 * math.pi * i) / n
+                dx = math.cos(a) * ring_r
+                dy = math.sin(a) * ring_r
+                p = self._offset_wgs84(pos, dx, dy)
+                out.append((uid, hs_id, p, pri, f"{reason}:orbit"))
+        return out
+
     def _plan_greedy(self, uavs: List, hotspots: List) -> List[Tuple[str, str, List[float], float, str]]:
         hotspots_sorted = sorted(hotspots, key=lambda h: float(h.intensity), reverse=True)
         max_targets = min(len(uavs), max(1, self.cfg.hotspot_per_uav * len(hotspots_sorted)))
+        max_load_per_hotspot = max(1, math.ceil(len(uavs) / max(1, len(hotspots_sorted))))
+        assign_count: Dict[str, int] = {}
         out: List[Tuple[str, str, List[float], float, str]] = []
         for u in uavs:
             best = None
             for hs in hotspots_sorted:
+                load = assign_count.get(hs.id, 0)
+                if load > max_load_per_hotspot:
+                    continue
                 d = distance_score_m(list(u.position), list(hs.position))
-                score = float(hs.intensity) - 0.35 * min(1.0, d / max(1.0, self.cfg.coverage_distance_norm_m))
+                load_penalty = 0.18 * load
+                score = float(hs.intensity) - 0.35 * min(1.0, d / max(1.0, self.cfg.coverage_distance_norm_m)) - load_penalty
                 if best is None or score > best[0]:
                     best = (score, hs)
             if best is None:
                 continue
             _, hs = best
             out.append((u.id, hs.id, list(hs.position), float(hs.intensity), f"track:{hs.id}:greedy_follow"))
+            assign_count[hs.id] = assign_count.get(hs.id, 0) + 1
             if len(out) >= max_targets:
                 break
         return out
@@ -220,16 +259,25 @@ class MissionPlanner(Node):
         # Step-2c: if UAVs still remain, allow multi-UAV follow on urgent hotspots.
         if remaining_uav and len(out) < max_targets:
             follow_pool = selected if selected else hotspots
+            assign_count: Dict[str, int] = {}
+            for _, hs_id, _, _, _ in out:
+                assign_count[hs_id] = assign_count.get(hs_id, 0) + 1
+            max_load_per_hotspot = max(1, math.ceil(len(uavs) / max(1, len(follow_pool))))
             for u in list(remaining_uav.values()):
                 best = None
                 for hs in follow_pool:
+                    load = assign_count.get(hs.id, 0)
+                    if load > max_load_per_hotspot:
+                        continue
                     score, priority_hint = self._pair_score(u, hs, now_sec)
+                    score -= 0.20 * load
                     if best is None or score > best[0]:
                         best = (score, priority_hint, hs)
                 if best is None:
                     continue
                 _, priority_hint, hs = best
                 out.append((u.id, hs.id, list(hs.position), priority_hint, f"track:{hs.id}:coverage_follow"))
+                assign_count[hs.id] = assign_count.get(hs.id, 0) + 1
                 if len(out) >= max_targets:
                     break
 
