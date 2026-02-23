@@ -43,8 +43,39 @@
       }
       .side-inner {
         display: grid;
-        grid-template-rows: auto 200px 1fr;
+        grid-template-rows: auto auto 200px 1fr;
         height: 100%;
+      }
+      .legend {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--text);
+      }
+      .legend-title {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .legend-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 4px 0;
+      }
+      .legend-swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        border: 1px solid rgba(255,255,255,0.45);
+      }
+      .swatch-high { background: rgba(239,68,68,0.95); }
+      .swatch-mid { background: rgba(245,158,11,0.95); }
+      .swatch-low { background: rgba(250,204,21,0.95); }
+      .legend-max {
+        margin-top: 6px;
+        color: var(--muted);
+        font-family: "JetBrains Mono", monospace;
       }
       .meta {
         padding: 12px;
@@ -100,7 +131,7 @@
       }
       @media (max-width: 1024px) {
         .layout { grid-template-columns: 1fr; }
-        .side-inner { grid-template-rows: auto 160px 1fr; }
+        .side-inner { grid-template-rows: auto auto 160px 1fr; }
       }
     </style>
   </head>
@@ -110,6 +141,13 @@
       <div class="side-card">
         <div class="side-inner">
           <div class="meta" id="meta">初始化中...</div>
+          <div class="legend" id="legend">
+            <div class="legend-title">火情强度图例（intensity）</div>
+            <div class="legend-row"><span class="legend-swatch swatch-high"></span><span>高危：>= 0.85</span></div>
+            <div class="legend-row"><span class="legend-swatch swatch-mid"></span><span>中危：0.60 - 0.84</span></div>
+            <div class="legend-row"><span class="legend-swatch swatch-low"></span><span>低危：< 0.60</span></div>
+            <div class="legend-max" id="legend-max">max_fire=n/a</div>
+          </div>
           <div id="deck"></div>
           <div class="table-wrap">
             <table>
@@ -127,6 +165,7 @@
       const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [] };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
+      const legendMax = document.getElementById('legend-max');
       const layerState = {
         showHotspot: true,
         showRegion: true,
@@ -200,6 +239,10 @@
       const hotspotMap = new Map();
       const missionLineMap = new Map();
       const hotspotFirstSeen = new Map();
+      const FIRE_THRESH = {
+        high: 0.85,
+        mid: 0.60
+      };
 
       function installLayerToggles() {
         if (controlsInstalled) return;
@@ -337,8 +380,8 @@
       }
 
       function fireColor(intensity) {
-        if (intensity >= 0.85) return Cesium.Color.fromBytes(239, 68, 68, 220);
-        if (intensity >= 0.6) return Cesium.Color.fromBytes(245, 158, 11, 220);
+        if (intensity >= FIRE_THRESH.high) return Cesium.Color.fromBytes(239, 68, 68, 220);
+        if (intensity >= FIRE_THRESH.mid) return Cesium.Color.fromBytes(245, 158, 11, 220);
         return Cesium.Color.fromBytes(250, 204, 21, 200);
       }
 
@@ -533,6 +576,9 @@
           const maxFire = state.fire_hotspots.length
             ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
             : 'n/a';
+          if (legendMax) {
+            legendMax.textContent = `max_fire=${maxFire} | 高危>=${FIRE_THRESH.high.toFixed(2)} 中危>=${FIRE_THRESH.mid.toFixed(2)}`;
+          }
           const areaKm2 = state.fire_hotspots.length
             ? (
               state.fire_hotspots
