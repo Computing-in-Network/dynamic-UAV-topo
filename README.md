@@ -232,6 +232,12 @@
 - 启动真实 FDS 输入链路：`./scripts/fire_mission_fds_start.sh 6 6 8913 coverage`
 - 说明文档：`docs/fds-min-loop.md`
 
+FDS 端到端压测（Issue #8）：
+
+- 脚本：`./scripts/stress_fds_pipeline.sh 20 20 8913 20 20.0`
+- 指标：`api_rtt`、`state_hz`、`plan/exec/done latency`、拓扑 profile
+- 文档：`docs/fds-stress.md`
+
 可视化地址与底图模式：
 
 - 默认：`http://127.0.0.1:8899/cesium`
