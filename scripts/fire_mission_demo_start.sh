@@ -71,12 +71,17 @@ python3 "${ROOT_DIR}/scripts/mission_planner.py" \
   > /tmp/mission_planner.log 2>&1 &
 PLANNER_PID=$!
 
+python3 "${ROOT_DIR}/scripts/mission_status_tracker.py" \
+  --ros-args -p plan_topic:=/swarm/mission_targets -p swarm_topic:=/swarm/state -p status_topic:=/swarm/mission_status \
+  > /tmp/mission_status_tracker.log 2>&1 &
+MISSION_STATUS_PID=$!
+
 SWARM_VIS_PORT="${VIS_PORT}" LD_LIBRARY_PATH="/opt/ros/humble/lib:/opt/ros/humble/local/lib:${LD_LIBRARY_PATH:-}" \
   python3 "${ROOT_DIR}/scripts/ros2_visualization_server.py" > /tmp/swarm_visual_server_fire_demo.log 2>&1 &
 VIS_PID=$!
 
-echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
+echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${MISSION_STATUS_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
-echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID}"
+echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} mission_status=${MISSION_STATUS_PID} vis=${VIS_PID}"
 echo "[fire_mission_demo_start] planner_mode=${PLANNER_MODE}"
 echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"

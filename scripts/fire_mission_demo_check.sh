@@ -44,7 +44,7 @@ import urllib.request
 
 import rclpy
 from rclpy.node import Node
-from swarm_interfaces.msg import MissionPlan
+from swarm_interfaces.msg import MissionPlan, MissionStatus
 
 PORT = int("${PORT}")
 url = f"http://127.0.0.1:{PORT}/api/swarm_state"
@@ -75,20 +75,33 @@ class PlanProbe(Node):
         self.seen = 0
         self.last = 0
         self.tracked_id = None
+        self.status_seen = 0
+        self.status_done = 0
+        self.status_fail = 0
         self.create_subscription(MissionPlan, "/swarm/mission_targets", self._cb, 10)
+        self.create_subscription(MissionStatus, "/swarm/mission_status", self._cb_status, 10)
     def _cb(self, msg: MissionPlan):
         self.seen += 1
         self.last = len(msg.targets)
         if msg.targets:
             self.tracked_id = msg.targets[0].uav_id
+    def _cb_status(self, msg: MissionStatus):
+        self.status_seen += 1
+        self.status_done = sum(1 for it in msg.items if int(it.state) == 3)
+        self.status_fail = sum(1 for it in msg.items if int(it.state) == 4)
 
 probe = PlanProbe()
 deadline = time.time() + 8
-while time.time() < deadline and probe.seen == 0:
+while time.time() < deadline and (probe.seen == 0 or probe.status_seen == 0):
     rclpy.spin_once(probe, timeout_sec=0.2)
 
 if probe.seen == 0 or probe.last == 0 or not probe.tracked_id:
     print("[fire_mission_demo_check] FAIL: mission planner 未产出目标")
+    probe.destroy_node()
+    rclpy.shutdown()
+    raise SystemExit(1)
+if probe.status_seen == 0:
+    print("[fire_mission_demo_check] FAIL: mission status 未产出状态")
     probe.destroy_node()
     rclpy.shutdown()
     raise SystemExit(1)
@@ -132,7 +145,10 @@ if pos1 is None:
     raise SystemExit(1)
 
 move = distance_m(pos0, pos1)
-print(f"mission_msgs={probe.seen} target_count={probe.last} tracked_uav={tracked} moved_m={move:.2f}")
+print(
+    f"mission_msgs={probe.seen} target_count={probe.last} mission_status_msgs={probe.status_seen} "
+    f"done={probe.status_done} fail={probe.status_fail} tracked_uav={tracked} moved_m={move:.2f}"
+)
 if move < 2.0:
     print("[fire_mission_demo_check] FAIL: UAV 位移过小，未观察到任务驱动运动")
     raise SystemExit(1)

@@ -56,8 +56,8 @@ if [[ -z "${VIS_PORT}" && -f "${PORT_FILE}" ]]; then
 fi
 
 if [[ -f "${PIDS_FILE}" ]]; then
-  read -r MANAGER_PID TOPO_PID FIRE_PID PLANNER_PID VIS_PID < "${PIDS_FILE}" || true
-  for p in "${MANAGER_PID:-}" "${TOPO_PID:-}" "${FIRE_PID:-}" "${PLANNER_PID:-}" "${VIS_PID:-}"; do
+  read -r MANAGER_PID TOPO_PID FIRE_PID PLANNER_PID MISSION_STATUS_PID VIS_PID < "${PIDS_FILE}" || true
+  for p in "${MANAGER_PID:-}" "${TOPO_PID:-}" "${FIRE_PID:-}" "${PLANNER_PID:-}" "${MISSION_STATUS_PID:-}" "${VIS_PID:-}"; do
     if [[ -n "${p}" ]]; then
       kill_pid_graceful "${p}"
     fi
@@ -67,6 +67,7 @@ fi
 
 kill_pattern "fire_adapter_demo.py"
 kill_pattern "mission_planner.py"
+kill_pattern "mission_status_tracker.py"
 kill_pattern "swarm_topology_analyzer_node"
 kill_pattern "swarm_uav_manager_node"
 kill_pattern "ros2_visualization_server.py"
