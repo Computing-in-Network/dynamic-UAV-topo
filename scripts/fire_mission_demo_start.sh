@@ -8,6 +8,7 @@ PORT_FILE="${ROOT_DIR}/.fire_demo_port"
 INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-4}"
 VIS_PORT="${3:-8899}"
+PLANNER_MODE="${4:-coverage}"
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" "${VIS_PORT}" >/dev/null 2>&1 || true
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
@@ -66,6 +67,7 @@ FIRE_PID=$!
 
 python3 "${ROOT_DIR}/scripts/mission_planner.py" \
   --ros-args -p fire_topic:=/env/fire_state -p swarm_topic:=/swarm/state -p plan_topic:=/swarm/mission_targets \
+  -p planner_mode:="${PLANNER_MODE}" -p coverage_revisit_sec:=12.0 \
   > /tmp/mission_planner.log 2>&1 &
 PLANNER_PID=$!
 
@@ -76,4 +78,5 @@ VIS_PID=$!
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
 echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID}"
+echo "[fire_mission_demo_start] planner_mode=${PLANNER_MODE}"
 echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"
