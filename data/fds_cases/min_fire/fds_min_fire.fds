@@ -1,0 +1,17 @@
+&HEAD CHID='fds_min_fire', TITLE='Minimal fire for UAV mission loop' /
+
+&MESH IJK=24,24,12, XB=0.0,24.0,0.0,24.0,0.0,12.0 /
+&TIME T_END=20.0 /
+&MISC TMPA=20.0 /
+
+&REAC ID='PROPANE', FUEL='PROPANE' /
+&SURF ID='BURNER', HRRPUA=600.0, COLOR='RED' /
+
+! Ground burner near the center area
+&VENT XB=10.0,12.0,10.0,12.0,0.0,0.0, SURF_ID='BURNER' /
+
+! Two virtual thermocouples exported to *_devc.csv
+&DEVC ID='TC_A', XYZ=10.5,10.5,2.0, QUANTITY='TEMPERATURE' /
+&DEVC ID='TC_B', XYZ=12.5,12.5,2.0, QUANTITY='TEMPERATURE' /
+
+&TAIL /

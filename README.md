@@ -225,6 +225,13 @@
 
 消息与说明见：`docs/mission-status-loop.md`。
 
+真实 FDS 最小闭环（安装后）：
+
+- 最小场景：`data/fds_cases/min_fire/fds_min_fire.fds`
+- 生成 `devc.csv`：`./scripts/fds_run_min_case.sh`
+- 启动真实 FDS 输入链路：`./scripts/fire_mission_fds_start.sh 6 6 8913 coverage`
+- 说明文档：`docs/fds-min-loop.md`
+
 可视化地址与底图模式：
 
 - 默认：`http://127.0.0.1:8899/cesium`
