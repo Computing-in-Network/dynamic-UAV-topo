@@ -43,6 +43,19 @@ class ResolvedFrame:
     frame: Frame
 
 
+@dataclass
+class DevcColumnConfig:
+    name: str
+    hotspot_id: str
+    x_m: float
+    y_m: float
+    z_m: float
+    value_min: float
+    value_max: float
+    spread_base: float
+    spread_scale: float
+
+
 def clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
@@ -128,6 +141,133 @@ def parse_csv_frames(path: Path) -> tuple[Origin, list[Frame]]:
     return origin, frames
 
 
+def _to_float(value: Any, fallback: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return fallback
+
+
+def normalize_stream_glob(raw: str) -> str:
+    v = str(raw).strip()
+    if not v:
+        return "*.json"
+    if "*" in v or "?" in v or "[" in v:
+        return v
+    if v.startswith("."):
+        return f"*{v}"
+    return v
+
+
+def parse_fds_devc_mapping(path: Path) -> tuple[Origin | None, list[DevcColumnConfig]]:
+    obj = json.loads(path.read_text(encoding="utf-8"))
+    origin_obj = obj.get("origin_wgs84")
+    origin = None
+    if isinstance(origin_obj, dict):
+        origin = Origin(
+            lat0=float(origin_obj.get("lat0", 39.9042)),
+            lon0=float(origin_obj.get("lon0", 116.4074)),
+            alt0_m=float(origin_obj.get("alt0_m", 80.0)),
+        )
+
+    columns_obj = obj.get("columns", [])
+    if not isinstance(columns_obj, list) or not columns_obj:
+        raise ValueError("fds devc mapping columns is empty")
+
+    columns: list[DevcColumnConfig] = []
+    for i, item in enumerate(columns_obj):
+        if not isinstance(item, dict):
+            raise ValueError(f"fds devc mapping columns[{i}] must be object")
+        name = str(item.get("name", "")).strip()
+        if not name:
+            raise ValueError(f"fds devc mapping columns[{i}].name is required")
+        hotspot_id = str(item.get("id", name)).strip() or name
+        value_min = _to_float(item.get("value_min", 0.0), 0.0)
+        value_max = _to_float(item.get("value_max", 1.0), 1.0)
+        if value_max <= value_min:
+            raise ValueError(f"fds devc mapping columns[{i}] value_max must be greater than value_min")
+        columns.append(
+            DevcColumnConfig(
+                name=name,
+                hotspot_id=hotspot_id,
+                x_m=_to_float(item.get("x_m", 0.0), 0.0),
+                y_m=_to_float(item.get("y_m", 0.0), 0.0),
+                z_m=_to_float(item.get("z_m", 0.0), 0.0),
+                value_min=value_min,
+                value_max=value_max,
+                spread_base=max(0.0, _to_float(item.get("spread_base", 0.2), 0.2)),
+                spread_scale=max(0.0, _to_float(item.get("spread_scale", 0.8), 0.8)),
+            )
+        )
+    return origin, columns
+
+
+def parse_fds_devc_csv_frames(path: Path, mapping_path: Path) -> tuple[Origin | None, list[Frame]]:
+    origin, mapping_cols = parse_fds_devc_mapping(mapping_path)
+
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = [row for row in reader if row]
+    if not rows:
+        raise ValueError("fds devc csv is empty")
+
+    header = [c.strip().strip('"') for c in rows[0]]
+    if not header or "time" not in header[0].lower():
+        raise ValueError("fds devc csv header must start with Time column")
+
+    data_start_idx = 1
+    if len(rows) > 1:
+        probe = rows[1][0].strip().strip('"').lower()
+        if probe in ("s", "sec", "second", "seconds", "time"):
+            data_start_idx = 2
+
+    name_to_idx: dict[str, int] = {}
+    for i, name in enumerate(header):
+        if i == 0:
+            continue
+        name_to_idx[name] = i
+        name_to_idx[name.lower()] = i
+
+    missing = [c.name for c in mapping_cols if c.name not in name_to_idx and c.name.lower() not in name_to_idx]
+    if missing:
+        raise ValueError(f"fds devc mapping columns missing in csv: {missing}")
+
+    frames: list[Frame] = []
+    for row in rows[data_start_idx:]:
+        if not row:
+            continue
+        time_s = _to_float(row[0], float("nan"))
+        if math.isnan(time_s):
+            continue
+        timestamp_ms = int(time_s * 1000.0)
+        hotspots: list[LocalHotspot] = []
+        for col in mapping_cols:
+            idx = name_to_idx.get(col.name, name_to_idx.get(col.name.lower(), -1))
+            if idx < 0 or idx >= len(row):
+                continue
+            value = _to_float(row[idx], float("nan"))
+            if math.isnan(value):
+                continue
+            intensity = clamp01((value - col.value_min) / max(1e-6, (col.value_max - col.value_min)))
+            spread = col.spread_base + intensity * col.spread_scale
+            hotspots.append(
+                LocalHotspot(
+                    hotspot_id=col.hotspot_id,
+                    x_m=col.x_m,
+                    y_m=col.y_m,
+                    z_m=col.z_m,
+                    intensity_01=intensity,
+                    spread_mps=spread,
+                )
+            )
+        if hotspots:
+            frames.append(Frame(timestamp_ms=timestamp_ms, sim_time_s=time_s, hotspots=hotspots))
+
+    if not frames:
+        raise ValueError("fds devc csv has no valid rows")
+    return origin, frames
+
+
 class FireAdapterFDS(Node):
     def __init__(self) -> None:
         super().__init__("fire_adapter_fds")
@@ -140,9 +280,12 @@ class FireAdapterFDS(Node):
         self.origin_lat0 = float(self.declare_parameter("origin_lat0", 39.9042).value)
         self.origin_lon0 = float(self.declare_parameter("origin_lon0", 116.4074).value)
         self.origin_alt0_m = float(self.declare_parameter("origin_alt0_m", 80.0).value)
+        self.fds_devc_mapping = Path(
+            str(self.declare_parameter("fds_devc_mapping", "data/fds_samples/fds_devc_mapping.sample.json").value)
+        )
 
         self.stream_dir = Path(str(self.declare_parameter("stream_dir", "data/fds_samples/stream").value))
-        self.stream_glob = str(self.declare_parameter("stream_glob", "*.json").value)
+        self.stream_glob = normalize_stream_glob(str(self.declare_parameter("stream_glob", ".json").value))
         self.checkpoint_file = Path(
             str(self.declare_parameter("checkpoint_file", "/tmp/fire_adapter_fds_checkpoint.json").value)
         )
@@ -194,6 +337,13 @@ class FireAdapterFDS(Node):
                 self.origin_lon0 if self.origin_lon0 != 0 else origin.lon0,
                 self.origin_alt0_m if self.origin_alt0_m != 0 else origin.alt0_m,
             )
+        elif fmt == "fds_devc_csv":
+            mapped_origin, frames = parse_fds_devc_csv_frames(path, self.fds_devc_mapping)
+            origin = Origin(
+                mapped_origin.lat0 if mapped_origin else self.origin_lat0,
+                mapped_origin.lon0 if mapped_origin else self.origin_lon0,
+                mapped_origin.alt0_m if mapped_origin else self.origin_alt0_m,
+            )
         else:
             raise ValueError(f"unsupported input_format={self.input_format}")
         return [ResolvedFrame(origin=origin, frame=f) for f in frames]
@@ -242,6 +392,15 @@ class FireAdapterFDS(Node):
                 self.origin_lat0 or origin.lat0,
                 self.origin_lon0 or origin.lon0,
                 self.origin_alt0_m or origin.alt0_m,
+            )
+            self.frames = frames
+            return
+        if fmt == "fds_devc_csv":
+            mapped_origin, frames = parse_fds_devc_csv_frames(self.input_path, self.fds_devc_mapping)
+            self.origin = Origin(
+                mapped_origin.lat0 if mapped_origin else self.origin_lat0,
+                mapped_origin.lon0 if mapped_origin else self.origin_lon0,
+                mapped_origin.alt0_m if mapped_origin else self.origin_alt0_m,
             )
             self.frames = frames
             return

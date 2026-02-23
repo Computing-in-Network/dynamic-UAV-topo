@@ -156,7 +156,10 @@
 
 ## Fire Mission MVP（FDS 接入预演）
 
-说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
+说明：当前已支持两类输入：
+
+- `fire_adapter_demo.py`：快速演示用模拟火情源。
+- `fire_adapter_fds.py`：支持样例 JSON/CSV 与真实 FDS `*_devc.csv` 输入。
 
 已实现可视化叠加：
 
@@ -166,6 +169,7 @@
 - 火区扩展图层：根据热点强度与扩散速度显示动态火区面（`fire_area_km2` 估计值）。
 - 图层开关：支持热点点/火区面/任务线显隐切换。
 - 火情图例：侧栏显示高危/中危/低危阈值（当前阈值：`>=0.85`、`0.60-0.84`、`<0.60`）。
+- FDS 原始输出接入：可通过 `fds_devc_csv` 模式将 `CHID_devc.csv` 转为 `FireState`。
 
 一键启动：
 
@@ -196,6 +200,23 @@
 - 默认：`http://127.0.0.1:8899/cesium`
 - 强制在线底图：`http://127.0.0.1:8899/cesium?basemap=osm`
 - 强制网格底图：`http://127.0.0.1:8899/cesium?basemap=grid`
+
+真实 FDS CSV 接入示例：
+
+```bash
+./scripts/fire_adapter_fds_start.sh \
+  data/fds_samples/fds_case_devc.sample.csv \
+  fds_devc_csv \
+  2.0 \
+  /env/fire_state \
+  offline \
+  data/fds_samples/stream \
+  .json \
+  /tmp/fire_adapter_fds_checkpoint.json \
+  data/fds_samples/fds_devc_mapping.sample.json
+```
+
+详细操作手册见：`docs/fds-integration.md`、`docs/fire-adapter-fds.md`。
 
 ## 备注
 
