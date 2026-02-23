@@ -244,6 +244,11 @@ FDS 故障注入恢复（Issue #9）：
 - 注入：断流、坏包、时钟漂移
 - 文档：`docs/fds-fault-injection.md`
 
+统一验收入口（Issue #23）：
+
+- 一键脚本：`./scripts/run_full_validation.sh`
+- 阶段报告：`docs/validation-report-2026-02-23.md`
+
 可视化地址与底图模式：
 
 - 默认：`http://127.0.0.1:8899/cesium`
