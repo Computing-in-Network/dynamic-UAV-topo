@@ -246,6 +246,8 @@ FDS 故障注入恢复（Issue #9）：
 
 统一验收入口（Issue #23）：
 
+- 汇报与演示话术：`docs/release-handover-2026-02-23.md`
+
 - 一键脚本：`./scripts/run_full_validation.sh`
 - 阶段报告：`docs/validation-report-2026-02-23.md`
 
