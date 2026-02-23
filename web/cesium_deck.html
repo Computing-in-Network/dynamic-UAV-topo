@@ -248,7 +248,7 @@
       const rawList = document.getElementById('raw-list');
       const rawPrevValues = new Map();
       const layerState = {
-        showHotspot: false,
+        showHotspot: true,
         showRegion: true,
         showMission: true,
         showRaw: true
@@ -353,7 +353,6 @@
       const entityMap = new Map();
       const polylineMap = new Map();
       const hotspotMap = new Map();
-      const firePatchMap = new Map();
       const fireClusterMap = new Map();
       const missionLineMap = new Map();
       const hotspotRegionState = new Map();
@@ -455,7 +454,7 @@
         if (name === 'task') {
           layerState.showMission = true;
           layerState.showRegion = true;
-          layerState.showHotspot = false;
+          layerState.showHotspot = true;
           layerState.showRaw = false;
         } else if (name === 'fire') {
           layerState.showMission = false;
@@ -682,6 +681,21 @@
         return lower.concat(upper);
       }
 
+      function smoothClosedPolygon(points, iterations) {
+        let out = points.slice();
+        for (let it = 0; it < iterations; it += 1) {
+          const next = [];
+          for (let i = 0; i < out.length; i += 1) {
+            const a = out[i];
+            const b = out[(i + 1) % out.length];
+            next.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]]);
+            next.push([0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+          }
+          out = next;
+        }
+        return out;
+      }
+
       function shouldMergeSeeds(a, b) {
         const d = approxDistanceMeters([a.lat, a.lon, 0], [b.lat, b.lon, 0]);
         const overlapThreshold = 35.0 + 0.58 * (Math.max(40, a.radius) + Math.max(40, b.radius));
@@ -724,15 +738,15 @@
           const support = [];
           for (const s of c) {
             const r = Math.max(28.0, Math.min(180.0, s.radius * 0.45));
-            for (let k = 0; k < 8; k += 1) {
-              const a = (2 * Math.PI * k) / 8;
+            for (let k = 0; k < 20; k += 1) {
+              const a = (2 * Math.PI * k) / 20;
               const dx = Math.cos(a) * r;
               const dy = Math.sin(a) * r;
               const [plat, plon] = offsetMetersToLatLon(s.lat, s.lon, dx, dy);
               support.push(toLocalMeters(plat, plon, lat0, lon0));
             }
           }
-          const hull = convexHull(support);
+          const hull = smoothClosedPolygon(convexHull(support), 2);
           if (hull.length < 3) {
             continue;
           }
@@ -767,7 +781,6 @@
 
       function upsertFireHotspots(hotspots, uavs, nowMs) {
         const live = new Set();
-        const livePatch = new Set();
         const clusterSeeds = [];
         let areaM2 = 0.0;
         let observedCount = 0;
@@ -826,56 +839,12 @@
             e.polyline.positions = Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]);
           }
 
-          // Patch-style fire footprint: render multiple small blobs instead of one large circle.
-          const patchCount = 10;
-          const footprintM = Math.max(40, Math.min(280, radius * 0.65));
-          for (let i = 0; i < patchCount; i += 1) {
-            const a = ((i / patchCount) * Math.PI * 2.0) + ((h.id.length % 7) * 0.17);
-            const r = footprintM * (0.35 + 0.65 * ((i % 3) / 2));
-            const dx = Math.cos(a) * r;
-            const dy = Math.sin(a) * r;
-            const [pLat, pLon] = offsetMetersToLatLon(lat, lon, dx, dy);
-            const k = `${h.id}:${i}`;
-            livePatch.add(k);
-            const pColor = Cesium.Color.fromBytes(
-              Math.min(255, Math.round(180 + intensity * 70)),
-              Math.min(200, Math.round(90 + intensity * 80)),
-              30,
-              Math.min(200, Math.round(90 + intensity * 90))
-            );
-            let pe = firePatchMap.get(k);
-            if (!pe) {
-              pe = viewer.entities.add({
-                id: `fire_patch:${k}`,
-                position: Cesium.Cartesian3.fromDegrees(pLon, pLat, 0),
-                point: {
-                  pixelSize: 7 + Math.round(intensity * 6),
-                  color: pColor,
-                  outlineColor: Cesium.Color.fromBytes(255, 255, 255, 120),
-                  outlineWidth: 1,
-                  show: layerState.showRegion
-                }
-              });
-              firePatchMap.set(k, pe);
-            } else {
-              pe.position = Cesium.Cartesian3.fromDegrees(pLon, pLat, 0);
-              pe.point.color = pColor;
-              pe.point.pixelSize = 7 + Math.round(intensity * 6);
-              pe.point.show = layerState.showRegion;
-            }
-          }
         }
         for (const [id, entity] of hotspotMap.entries()) {
           if (!live.has(id)) {
             viewer.entities.remove(entity);
             hotspotMap.delete(id);
             hotspotRegionState.delete(id);
-          }
-        }
-        for (const [k, entity] of firePatchMap.entries()) {
-          if (!livePatch.has(k)) {
-            viewer.entities.remove(entity);
-            firePatchMap.delete(k);
           }
         }
         upsertFireClusters(clusterSeeds);
