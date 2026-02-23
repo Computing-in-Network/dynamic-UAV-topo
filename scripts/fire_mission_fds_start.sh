@@ -12,6 +12,9 @@ PLANNER_MODE="${4:-coverage}"
 INPUT_CSV="${5:-${ROOT_DIR}/data/fds_cases/min_fire/fds_min_fire_devc.csv}"
 MAPPING_JSON="${6:-${ROOT_DIR}/data/fds_cases/min_fire/fds_min_fire_devc_mapping.json}"
 PUBLISH_HZ="${7:-2.0}"
+TOPO_ENABLE_PROFILE="${8:-false}"
+TOPO_PROFILE_EVERY_N="${9:-20}"
+TOPO_PROFILE_TARGET_MS="${10:-20.0}"
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" "${VIS_PORT}" >/dev/null 2>&1 || true
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
@@ -69,6 +72,9 @@ MANAGER_PID=$!
 ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
   -p input_topic:=/swarm/state_raw \
   -p output_topic:=/swarm/state \
+  -p enable_profile_log:="${TOPO_ENABLE_PROFILE}" \
+  -p profile_log_every_n:="${TOPO_PROFILE_EVERY_N}" \
+  -p profile_target_ms:="${TOPO_PROFILE_TARGET_MS}" \
   > /tmp/swarm_topology_fire_demo.log 2>&1 &
 TOPO_PID=$!
 
@@ -100,5 +106,5 @@ VIS_PID=$!
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${MISSION_STATUS_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
 echo "[fire_mission_fds_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire_fds=${FIRE_PID} planner=${PLANNER_PID} mission_status=${MISSION_STATUS_PID} vis=${VIS_PID}"
-echo "[fire_mission_fds_start] planner_mode=${PLANNER_MODE} input=${INPUT_CSV}"
+echo "[fire_mission_fds_start] planner_mode=${PLANNER_MODE} input=${INPUT_CSV} topo_profile=${TOPO_ENABLE_PROFILE}"
 echo "[fire_mission_fds_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"
