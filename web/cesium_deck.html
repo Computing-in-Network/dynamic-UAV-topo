@@ -255,11 +255,15 @@
       };
       let activePreset = 'task';
       let basemapMode = 'OSM';
+      let terrainMode = 'FLAT';
       let osmErrorCount = 0;
       let controlsInstalled = false;
-      const forceBasemap = new URLSearchParams(window.location.search).get('basemap');
+      const params = new URLSearchParams(window.location.search);
+      const forceBasemap = params.get('basemap');
+      const terrainParam = (params.get('terrain') || 'auto').toLowerCase();
+      const ionToken = (params.get('ion_token') || '').trim();
 
-      Cesium.Ion.defaultAccessToken = undefined;
+      Cesium.Ion.defaultAccessToken = ionToken || undefined;
       const osmProvider = new Cesium.OpenStreetMapImageryProvider({
         // Use local tile proxy to avoid browser-side CDN/proxy instability.
         url: '/tiles/osm/'
@@ -283,6 +287,29 @@
         imageryProvider: osmProvider
       });
       viewer.scene.globe.depthTestAgainstTerrain = false;
+      viewer.scene.globe.enableLighting = false;
+
+      async function tryEnableWorldTerrain() {
+        if (!Cesium.createWorldTerrainAsync) return;
+        try {
+          const terrain = await Cesium.createWorldTerrainAsync({
+            requestVertexNormals: true
+          });
+          viewer.terrainProvider = terrain;
+          viewer.scene.globe.depthTestAgainstTerrain = true;
+          viewer.scene.globe.enableLighting = true;
+          if (typeof viewer.scene.verticalExaggeration === 'number') {
+            viewer.scene.verticalExaggeration = 1.35;
+          }
+          terrainMode = 'WORLD';
+        } catch (_) {
+          terrainMode = 'FLAT';
+        }
+      }
+
+      if (terrainParam === 'world' || (terrainParam === 'auto' && ionToken)) {
+        tryEnableWorldTerrain();
+      }
 
       function switchToFallbackBasemap() {
         if (basemapMode === 'GRID') return;
@@ -315,12 +342,18 @@
       });
 
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 22000.0)
+        destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 26000.0),
+        orientation: {
+          heading: Cesium.Math.toRadians(18.0),
+          pitch: Cesium.Math.toRadians(-42.0),
+          roll: 0.0
+        }
       });
 
       const entityMap = new Map();
       const polylineMap = new Map();
       const hotspotMap = new Map();
+      const firePatchMap = new Map();
       const missionLineMap = new Map();
       const hotspotRegionState = new Map();
       const OBSERVE_RADIUS_M = 220.0;
@@ -595,8 +628,16 @@
         return { radius, observed };
       }
 
+      function offsetMetersToLatLon(baseLat, baseLon, dxM, dyM) {
+        const lat = baseLat + (dyM / 111000.0);
+        const lonScale = 111000.0 * Math.max(0.15, Math.cos(baseLat * Math.PI / 180.0));
+        const lon = baseLon + (dxM / lonScale);
+        return [lat, lon];
+      }
+
       function upsertFireHotspots(hotspots, uavs, nowMs) {
         const live = new Set();
+        const livePatch = new Set();
         let areaM2 = 0.0;
         let observedCount = 0;
         for (const h of hotspots || []) {
@@ -625,16 +666,6 @@
                 material: Cesium.Color.fromBytes(239, 68, 68, 180),
                 show: layerState.showHotspot
               },
-              ellipse: {
-                semiMinorAxis: radius,
-                semiMajorAxis: radius,
-                height: 0,
-                material: Cesium.Color.fromBytes(239, 68, 68, 36),
-                outline: false,
-                outlineColor: Cesium.Color.fromBytes(239, 68, 68, 180),
-                outlineWidth: 1,
-                show: layerState.showRegion
-              },
               label: {
                 text: `FIRE ${h.id}`,
                 font: '13px JetBrains Mono',
@@ -656,9 +687,45 @@
             e.polyline.show = layerState.showHotspot;
             e.label.show = layerState.showHotspot;
             e.polyline.positions = Cesium.Cartesian3.fromDegreesArrayHeights([lon, lat, 0, lon, lat, alt]);
-            e.ellipse.semiMinorAxis = radius;
-            e.ellipse.semiMajorAxis = radius;
-            e.ellipse.show = layerState.showRegion;
+          }
+
+          // Patch-style fire footprint: render multiple small blobs instead of one large circle.
+          const patchCount = 10;
+          const footprintM = Math.max(40, Math.min(280, radius * 0.65));
+          for (let i = 0; i < patchCount; i += 1) {
+            const a = ((i / patchCount) * Math.PI * 2.0) + ((h.id.length % 7) * 0.17);
+            const r = footprintM * (0.35 + 0.65 * ((i % 3) / 2));
+            const dx = Math.cos(a) * r;
+            const dy = Math.sin(a) * r;
+            const [pLat, pLon] = offsetMetersToLatLon(lat, lon, dx, dy);
+            const k = `${h.id}:${i}`;
+            livePatch.add(k);
+            const pColor = Cesium.Color.fromBytes(
+              Math.min(255, Math.round(180 + intensity * 70)),
+              Math.min(200, Math.round(90 + intensity * 80)),
+              30,
+              Math.min(200, Math.round(90 + intensity * 90))
+            );
+            let pe = firePatchMap.get(k);
+            if (!pe) {
+              pe = viewer.entities.add({
+                id: `fire_patch:${k}`,
+                position: Cesium.Cartesian3.fromDegrees(pLon, pLat, 0),
+                point: {
+                  pixelSize: 7 + Math.round(intensity * 6),
+                  color: pColor,
+                  outlineColor: Cesium.Color.fromBytes(255, 255, 255, 120),
+                  outlineWidth: 1,
+                  show: layerState.showRegion
+                }
+              });
+              firePatchMap.set(k, pe);
+            } else {
+              pe.position = Cesium.Cartesian3.fromDegrees(pLon, pLat, 0);
+              pe.point.color = pColor;
+              pe.point.pixelSize = 7 + Math.round(intensity * 6);
+              pe.point.show = layerState.showRegion;
+            }
           }
         }
         for (const [id, entity] of hotspotMap.entries()) {
@@ -666,6 +733,12 @@
             viewer.entities.remove(entity);
             hotspotMap.delete(id);
             hotspotRegionState.delete(id);
+          }
+        }
+        for (const [k, entity] of firePatchMap.entries()) {
+          if (!livePatch.has(k)) {
+            viewer.entities.remove(entity);
+            firePatchMap.delete(k);
           }
         }
         return {
@@ -881,7 +954,7 @@
             const fdsRawCount = state.fds_raw && state.fds_raw.values && typeof state.fds_raw.values === 'object'
               ? Object.keys(state.fds_raw.values).length
               : 0;
-            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">observed_fire=${fireMetrics.observedCount}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">fds_raw=${fdsRawCount}</span><span class="badge">basemap=${basemapMode}</span>`;
+            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">observed_fire=${fireMetrics.observedCount}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">fds_raw=${fdsRawCount}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">terrain=${terrainMode}</span>`;
           }
           upsertMissionLines(state.uavs, state.mission_targets);
           renderFdsRaw(state.fds_raw);
