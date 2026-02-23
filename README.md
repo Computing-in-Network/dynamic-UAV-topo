@@ -282,6 +282,7 @@ FDS 故障注入恢复（Issue #9）：
 ```
 
 详细操作手册见：`docs/fds-integration.md`、`docs/fire-adapter-fds.md`。
+统一场景规范见：`docs/fds-unified-scenario.md`（建议后续演示与回归都按该文档执行）。
 
 ## 备注
 
