@@ -197,3 +197,14 @@
 ## 备注
 
 - 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。
+
+## 协作流程（Git Flow）
+
+- 详细规范见：`docs/git-flow.md`
+- Issue / Commit / PR 统一使用中文，并写清背景、改动、验证。
+
+建议本地启用中文 commit 模板：
+
+```bash
+git config commit.template .gitmessage-zh.txt
+```
