@@ -354,6 +354,7 @@
       const polylineMap = new Map();
       const hotspotMap = new Map();
       const firePatchMap = new Map();
+      const fireClusterMap = new Map();
       const missionLineMap = new Map();
       const hotspotRegionState = new Map();
       const OBSERVE_RADIUS_M = 220.0;
@@ -635,9 +636,95 @@
         return [lat, lon];
       }
 
+      function clusterFireSeeds(seeds, mergeDistanceM) {
+        const clusters = [];
+        const used = new Array(seeds.length).fill(false);
+        for (let i = 0; i < seeds.length; i += 1) {
+          if (used[i]) continue;
+          const queue = [i];
+          used[i] = true;
+          const idx = [];
+          while (queue.length) {
+            const cur = queue.pop();
+            idx.push(cur);
+            for (let j = 0; j < seeds.length; j += 1) {
+              if (used[j]) continue;
+              const d = approxDistanceMeters(
+                [seeds[cur].lat, seeds[cur].lon, 0],
+                [seeds[j].lat, seeds[j].lon, 0]
+              );
+              if (d <= mergeDistanceM) {
+                used[j] = true;
+                queue.push(j);
+              }
+            }
+          }
+          clusters.push(idx.map(k => seeds[k]));
+        }
+        return clusters;
+      }
+
+      function upsertFireClusters(seeds) {
+        const live = new Set();
+        const clusters = clusterFireSeeds(seeds, 190.0).filter(c => c.length >= 2);
+        for (let i = 0; i < clusters.length; i += 1) {
+          const c = clusters[i];
+          const key = `cluster:${i}`;
+          live.add(key);
+          let wsum = 0.0;
+          let lat = 0.0;
+          let lon = 0.0;
+          let avgR = 0.0;
+          for (const s of c) {
+            const w = Math.max(0.05, s.intensity);
+            wsum += w;
+            lat += s.lat * w;
+            lon += s.lon * w;
+            avgR += s.radius;
+          }
+          lat /= Math.max(1e-6, wsum);
+          lon /= Math.max(1e-6, wsum);
+          avgR /= c.length;
+          let maxD = 0.0;
+          for (const s of c) {
+            const d = approxDistanceMeters([lat, lon, 0], [s.lat, s.lon, 0]);
+            if (d > maxD) maxD = d;
+          }
+          const clusterRadius = Math.max(80.0, Math.min(520.0, maxD + avgR * 0.45));
+          let e = fireClusterMap.get(key);
+          if (!e) {
+            e = viewer.entities.add({
+              id: `fire_cluster:${key}`,
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+              ellipse: {
+                semiMinorAxis: clusterRadius,
+                semiMajorAxis: clusterRadius,
+                height: 0,
+                material: Cesium.Color.fromBytes(251, 146, 60, 42),
+                outline: false,
+                show: layerState.showRegion
+              }
+            });
+            fireClusterMap.set(key, e);
+          } else {
+            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
+            e.ellipse.semiMinorAxis = clusterRadius;
+            e.ellipse.semiMajorAxis = clusterRadius;
+            e.ellipse.show = layerState.showRegion;
+          }
+        }
+        for (const [k, e] of fireClusterMap.entries()) {
+          if (!live.has(k)) {
+            viewer.entities.remove(e);
+            fireClusterMap.delete(k);
+          }
+        }
+      }
+
       function upsertFireHotspots(hotspots, uavs, nowMs) {
         const live = new Set();
         const livePatch = new Set();
+        const clusterSeeds = [];
         let areaM2 = 0.0;
         let observedCount = 0;
         for (const h of hotspots || []) {
@@ -652,6 +739,7 @@
           const nearestUavM = nearestUavDistanceMeters(h.position || [lat, lon, alt], uavs);
           const dyn = dynamicFireRadius(h.id, intensity, spread, nearestUavM, nowMs);
           const radius = dyn.radius;
+          clusterSeeds.push({ id: h.id, lat, lon, radius, intensity });
           areaM2 += Math.PI * radius * radius;
           if (dyn.observed) observedCount += 1;
           let e = hotspotMap.get(h.id);
@@ -741,6 +829,7 @@
             firePatchMap.delete(k);
           }
         }
+        upsertFireClusters(clusterSeeds);
         return {
           areaKm2: (areaM2 / 1_000_000.0),
           observedCount
