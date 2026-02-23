@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "origin_wgs84": {"lat0": 39.9042, "lon0": 116.4074, "alt0_m": 80.0},
+  "timestamp_ms": 1771599000000,
+  "sim_time_s": 10.0,
+  "hotspots_local_m": [
+    {"id": "hotspot_a", "x_m": 20.0, "y_m": 50.0, "z_m": 10.0, "intensity_01": 0.66, "spread_mps": 0.30}
+  ]
+}
