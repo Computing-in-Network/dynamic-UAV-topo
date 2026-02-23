@@ -217,6 +217,14 @@
 ./scripts/eval_planner_coverage.py --ticks 120 --seed 42 --uavs 8 --hotspots 10
 ```
 
+任务执行反馈闭环（Issue #7）：
+
+- 新增话题：`/swarm/mission_status`
+- 新增节点：`scripts/mission_status_tracker.py`
+- 前端新增执行态势统计：`exec/done/fail`
+
+消息与说明见：`docs/mission-status-loop.md`。
+
 可视化地址与底图模式：
 
 - 默认：`http://127.0.0.1:8899/cesium`

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Swarm Cesium + Deck.gl</title>
-    <link rel="stylesheet" href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.138.0/Build/Cesium/Widgets/widgets.css" />
     <style>
       :root {
         --bg: #050816;
@@ -151,7 +151,7 @@
           <div id="deck"></div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Lat</th><th>Lon</th><th>Alt</th><th>Status</th></tr></thead>
+              <thead><tr><th>ID</th><th>Lat</th><th>Lon</th><th>Alt</th><th>UAV</th><th>Mission</th></tr></thead>
               <tbody id="rows"></tbody>
             </table>
           </div>
@@ -159,10 +159,22 @@
       </div>
     </div>
 
-    <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
-    <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
     <script>
-      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [] };
+      // Prefer jsDelivr in this environment; keep unpkg as runtime fallback.
+      window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@1.138.0/Build/Cesium/';
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.138.0/Build/Cesium/Cesium.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/deck.gl@8.9.36/dist.min.js"></script>
+    <script>
+      if (!window.Cesium) {
+        document.write('<script>window.CESIUM_BASE_URL="https://unpkg.com/cesium@1.138.0/Build/Cesium/";<\/script>');
+        document.write('<script src="https://unpkg.com/cesium@1.138.0/Build/Cesium/Cesium.js"><\/script>');
+      }
+      if (!window.deck) {
+        document.write('<script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"><\/script>');
+      }
+
+      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [], mission_status: [] };
       const rows = document.getElementById('rows');
       const meta = document.getElementById('meta');
       const legendMax = document.getElementById('legend-max');
@@ -178,7 +190,8 @@
 
       Cesium.Ion.defaultAccessToken = undefined;
       const osmProvider = new Cesium.OpenStreetMapImageryProvider({
-        url: 'https://tile.openstreetmap.org/'
+        // Use local tile proxy to avoid browser-side CDN/proxy instability.
+        url: '/tiles/osm/'
       });
       const fallbackProvider = new Cesium.GridImageryProvider({
         cells: 16,
@@ -282,6 +295,14 @@
         if (status === 1) return [239, 68, 68, 210];
         if (status === 2) return [96, 165, 250, 210];
         return [34, 197, 94, 210];
+      }
+
+      function missionStateText(v) {
+        if (v === 1) return 'ASSIGNED';
+        if (v === 2) return 'EXECUTING';
+        if (v === 3) return 'COMPLETED';
+        if (v === 4) return 'FAILED';
+        return 'IDLE';
       }
 
       function upsertCesiumEntities(uavs) {
@@ -552,11 +573,20 @@
         });
       }
 
-      function updateTable(uavs) {
+      function updateTable(uavs, missionStatus) {
+        const msByUav = new Map((missionStatus || []).map(x => [x.uav_id, x]));
         rows.innerHTML = '';
         for (const u of uavs) {
+          const ms = msByUav.get(u.id);
+          let missionText = 'IDLE';
+          if (ms) {
+            missionText = `${missionStateText(ms.state)}(${Math.round((ms.progress || 0) * 100)}%)`;
+            if (ms.reason) {
+              missionText += ` ${ms.reason}`;
+            }
+          }
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${u.id}</td><td>${u.position[0].toFixed(6)}</td><td>${u.position[1].toFixed(6)}</td><td>${u.position[2].toFixed(1)}</td><td class="status-${u.status}">${u.status}</td>`;
+          tr.innerHTML = `<td>${u.id}</td><td>${u.position[0].toFixed(6)}</td><td>${u.position[1].toFixed(6)}</td><td>${u.position[2].toFixed(1)}</td><td class="status-${u.status}">${u.status}</td><td>${missionText}</td>`;
           rows.appendChild(tr);
         }
       }
@@ -570,6 +600,10 @@
           state.links = next.links || [];
           state.fire_hotspots = next.fire_hotspots || [];
           state.mission_targets = next.mission_targets || [];
+          state.mission_status = next.mission_status || [];
+          const missionExec = state.mission_status.filter(x => x.state === 2).length;
+          const missionDone = state.mission_status.filter(x => x.state === 3).length;
+          const missionFail = state.mission_status.filter(x => x.state === 4).length;
           const avgW = state.links.length
             ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
             : 'n/a';
@@ -594,14 +628,14 @@
 
           const statusEl = document.getElementById('meta-status');
           if (statusEl) {
-            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span>`;
+            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">basemap=${basemapMode}</span>`;
           }
           upsertCesiumEntities(state.uavs);
           upsertCesiumLinks(state.uavs, state.links);
           upsertFireHotspots(state.fire_hotspots, state.timestamp || Date.now());
           upsertMissionLines(state.uavs, state.mission_targets);
           updateDeck(state.uavs, state.links);
-          updateTable(state.uavs);
+          updateTable(state.uavs, state.mission_status);
         } catch (_) {
           const statusEl = document.getElementById('meta-status');
           if (statusEl) {

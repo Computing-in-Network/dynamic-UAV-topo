@@ -11,6 +11,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LinkState.msg"
   "msg/MissionTarget.msg"
   "msg/MissionPlan.msg"
+  "msg/MissionStatusItem.msg"
+  "msg/MissionStatus.msg"
   "msg/UavState.msg"
   "msg/SwarmState.msg"
   DEPENDENCIES builtin_interfaces
