@@ -636,7 +636,13 @@
         return [lat, lon];
       }
 
-      function clusterFireSeeds(seeds, mergeDistanceM) {
+      function shouldMergeSeeds(a, b) {
+        const d = approxDistanceMeters([a.lat, a.lon, 0], [b.lat, b.lon, 0]);
+        const overlapThreshold = 35.0 + 0.58 * (Math.max(40, a.radius) + Math.max(40, b.radius));
+        return d <= overlapThreshold;
+      }
+
+      function clusterFireSeeds(seeds) {
         const clusters = [];
         const used = new Array(seeds.length).fill(false);
         for (let i = 0; i < seeds.length; i += 1) {
@@ -649,11 +655,7 @@
             idx.push(cur);
             for (let j = 0; j < seeds.length; j += 1) {
               if (used[j]) continue;
-              const d = approxDistanceMeters(
-                [seeds[cur].lat, seeds[cur].lon, 0],
-                [seeds[j].lat, seeds[j].lon, 0]
-              );
-              if (d <= mergeDistanceM) {
+              if (shouldMergeSeeds(seeds[cur], seeds[j])) {
                 used[j] = true;
                 queue.push(j);
               }
@@ -666,10 +668,10 @@
 
       function upsertFireClusters(seeds) {
         const live = new Set();
-        const clusters = clusterFireSeeds(seeds, 190.0).filter(c => c.length >= 2);
+        const clusters = clusterFireSeeds(seeds).filter(c => c.length >= 2);
         for (let i = 0; i < clusters.length; i += 1) {
           const c = clusters[i];
-          const key = `cluster:${i}`;
+          const key = `cluster:${c.map(x => x.id).sort().join('|')}`;
           live.add(key);
           let wsum = 0.0;
           let lat = 0.0;
@@ -690,7 +692,7 @@
             const d = approxDistanceMeters([lat, lon, 0], [s.lat, s.lon, 0]);
             if (d > maxD) maxD = d;
           }
-          const clusterRadius = Math.max(80.0, Math.min(520.0, maxD + avgR * 0.45));
+          const clusterRadius = Math.max(70.0, Math.min(360.0, maxD + Math.min(120.0, avgR * 0.25)));
           let e = fireClusterMap.get(key);
           if (!e) {
             e = viewer.entities.add({
