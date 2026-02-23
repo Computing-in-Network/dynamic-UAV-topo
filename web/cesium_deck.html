@@ -323,6 +323,17 @@
         viewer.imageryLayers.removeAll();
         viewer.imageryLayers.addImageryProvider(osmProvider);
       }
+      async function probeOsmAndRecover() {
+        if (forceBasemap === 'grid' || basemapMode !== 'GRID') return;
+        try {
+          const resp = await fetch('/tiles/osm/0/0/0.png', { cache: 'no-store' });
+          if (resp.ok) {
+            switchToOsmBasemap();
+          }
+        } catch (_) {
+          // keep fallback basemap until next probe succeeds
+        }
+      }
 
       if (forceBasemap === 'grid') {
         switchToFallbackBasemap();
@@ -340,6 +351,9 @@
           switchToFallbackBasemap();
         }
       });
+      if (forceBasemap !== 'grid') {
+        setInterval(probeOsmAndRecover, 10000);
+      }
 
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 26000.0),

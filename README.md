@@ -61,6 +61,34 @@
 - 第4个：健康检查频率 Hz（默认 `1`）
 - 第5个：输出 Topic（默认 `/swarm/state_raw`）
 
+## Docker 常驻运行
+
+说明：
+
+- 代理服务器是 `192.168.0.5:7890`（Docker daemon 代理）。
+- 为兼容 ROS2 `--symlink-install` 的绝对路径，容器内外请使用同一路径挂载：`/home/zyren/dynamic-uav-topo`。
+
+构建镜像：
+
+```bash
+docker build -t dynamic-uav-topo:v1.0.1 -f docker/Dockerfile .
+```
+
+长期运行（开机自启）：
+
+```bash
+docker run -d --name dynamic-uav-topo-v1 --restart unless-stopped --network host \
+  -e REPO_DIR=/home/zyren/dynamic-uav-topo \
+  -e VIS_PORT=8928 \
+  -e INSTANCE_COUNT=6 \
+  -e TOTAL_CORES=6 \
+  -e HTTP_PROXY=http://192.168.0.5:7890 \
+  -e HTTPS_PROXY=http://192.168.0.5:7890 \
+  -e NO_PROXY=127.0.0.1,localhost \
+  -v /home/zyren/dynamic-uav-topo:/home/zyren/dynamic-uav-topo \
+  dynamic-uav-topo:v1.0.1
+```
+
 ## 可视化演示
 
 ### 一键启动
