@@ -177,6 +177,12 @@
 ./scripts/fire_mission_demo_start.sh 4 4 8899
 ```
 
+可选第 4 个参数：`planner_mode`（`greedy|coverage`），例如：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 coverage
+```
+
 一键停止：
 
 ```bash
@@ -194,6 +200,22 @@
 - 输出 `mission_msgs=... target_count=...`
 - 输出 `tracked_uav=... moved_m=...` 且位移明显大于 0
 - 输出 `[fire_mission_demo_check] PASS: 火场任务链路有效`
+
+任务规划策略（Issue #6）：
+
+- `planner_mode=greedy|coverage`（默认 `greedy`）
+- `coverage` 模式新增参数：
+- `coverage_revisit_sec`：复访周期约束（秒）
+- `coverage_priority_decay`：近期已访问热点的优先级衰减
+- `coverage_distance_weight`：距离惩罚权重
+- `coverage_continuity_bonus`：连续跟踪同一热点的稳定性加分
+- `coverage_retarget_threshold_m`：目标重定向阈值（米，`0` 为关闭保持机制）
+
+离线对比评估脚本：
+
+```bash
+./scripts/eval_planner_coverage.py --ticks 120 --seed 42 --uavs 8 --hotspots 10
+```
 
 可视化地址与底图模式：
 
