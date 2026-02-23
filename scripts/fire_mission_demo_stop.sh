@@ -66,6 +66,7 @@ if [[ -f "${PIDS_FILE}" ]]; then
 fi
 
 kill_pattern "fire_adapter_demo.py"
+kill_pattern "fire_adapter_fds.py"
 kill_pattern "mission_planner.py"
 kill_pattern "mission_status_tracker.py"
 kill_pattern "swarm_topology_analyzer_node"
