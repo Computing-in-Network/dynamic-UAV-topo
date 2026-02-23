@@ -1,0 +1,31 @@
+{
+  "origin_wgs84": {
+    "lat0": 39.9042,
+    "lon0": 116.4074,
+    "alt0_m": 80.0
+  },
+  "columns": [
+    {
+      "name": "TC_A",
+      "id": "fds_tc_a",
+      "x_m": 20.0,
+      "y_m": 10.0,
+      "z_m": 2.0,
+      "value_min": 60.0,
+      "value_max": 320.0,
+      "spread_base": 0.3,
+      "spread_scale": 1.1
+    },
+    {
+      "name": "TC_B",
+      "id": "fds_tc_b",
+      "x_m": 40.0,
+      "y_m": 28.0,
+      "z_m": 2.0,
+      "value_min": 60.0,
+      "value_max": 320.0,
+      "spread_base": 0.3,
+      "spread_scale": 1.1
+    }
+  ]
+}

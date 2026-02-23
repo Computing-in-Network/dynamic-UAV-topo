@@ -8,8 +8,9 @@ PUBLISH_HZ="${3:-1.0}"
 OUTPUT_TOPIC="${4:-/env/fire_state}"
 MODE="${5:-offline}"
 STREAM_DIR="${6:-${ROOT_DIR}/data/fds_samples/stream}"
-STREAM_GLOB="${7:-*.json}"
+STREAM_GLOB="${7:-.json}"
 CHECKPOINT_FILE="${8:-/tmp/fire_adapter_fds_checkpoint.json}"
+FDS_DEVC_MAPPING="${9:-${ROOT_DIR}/data/fds_samples/fds_devc_mapping.sample.json}"
 
 set +u
 source /opt/ros/humble/setup.bash
@@ -27,4 +28,5 @@ exec python3 "${ROOT_DIR}/scripts/fire_adapter_fds.py" --ros-args \
   -p mode:="${MODE}" \
   -p stream_dir:="${STREAM_DIR}" \
   -p stream_glob:="${STREAM_GLOB}" \
-  -p checkpoint_file:="${CHECKPOINT_FILE}"
+  -p checkpoint_file:="${CHECKPOINT_FILE}" \
+  -p fds_devc_mapping:="${FDS_DEVC_MAPPING}"
