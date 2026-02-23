@@ -322,7 +322,8 @@
       const polylineMap = new Map();
       const hotspotMap = new Map();
       const missionLineMap = new Map();
-      const hotspotFirstSeen = new Map();
+      const hotspotRegionState = new Map();
+      const OBSERVE_RADIUS_M = 220.0;
       const FIRE_THRESH = {
         high: 0.85,
         mid: 0.60
@@ -555,15 +556,51 @@
         return Cesium.Color.fromBytes(250, 204, 21, 200);
       }
 
-      function upsertFireHotspots(hotspots, nowMs) {
+      function approxDistanceMeters(aPos, bPos) {
+        const dLatM = (aPos[0] - bPos[0]) * 111000.0;
+        const latMid = (aPos[0] + bPos[0]) * 0.5 * Math.PI / 180.0;
+        const dLonM = (aPos[1] - bPos[1]) * 111000.0 * Math.max(0.15, Math.cos(latMid));
+        const dAltM = (aPos[2] || 0) - (bPos[2] || 0);
+        return Math.sqrt(dLatM * dLatM + dLonM * dLonM + dAltM * dAltM);
+      }
+
+      function nearestUavDistanceMeters(hotspotPos, uavs) {
+        let minD = Number.POSITIVE_INFINITY;
+        for (const u of uavs || []) {
+          const d = approxDistanceMeters(hotspotPos, u.position || [0, 0, 0]);
+          if (d < minD) minD = d;
+        }
+        return minD;
+      }
+
+      function dynamicFireRadius(hotspotId, intensity, spread, nearestUavM, nowMs) {
+        const targetRadius = 90 + intensity * 260 + spread * 90;
+        const prev = hotspotRegionState.get(hotspotId) || {
+          radius: Math.max(80, targetRadius * 0.75),
+          lastTs: nowMs
+        };
+        const dt = Math.max(0.02, Math.min(2.0, (nowMs - prev.lastTs) / 1000.0));
+        const observed = Number.isFinite(nearestUavM) && nearestUavM <= OBSERVE_RADIUS_M;
+        const responseBoost = observed ? 1.7 : 1.0;
+        const growRate = (14 + spread * 28) * responseBoost;
+        const shrinkRate = (10 + Math.max(0.0, 1.0 - intensity) * 22) * responseBoost;
+        let radius = prev.radius;
+        if (targetRadius > radius) {
+          radius = Math.min(targetRadius, radius + growRate * dt);
+        } else {
+          radius = Math.max(targetRadius, radius - shrinkRate * dt);
+        }
+        radius = Math.max(50, Math.min(2200, radius));
+        hotspotRegionState.set(hotspotId, { radius, lastTs: nowMs });
+        return { radius, observed };
+      }
+
+      function upsertFireHotspots(hotspots, uavs, nowMs) {
         const live = new Set();
+        let areaM2 = 0.0;
+        let observedCount = 0;
         for (const h of hotspots || []) {
           live.add(h.id);
-          if (!hotspotFirstSeen.has(h.id)) {
-            hotspotFirstSeen.set(h.id, nowMs);
-          }
-          const seenMs = hotspotFirstSeen.get(h.id) || nowMs;
-          const elapsedS = Math.max(0, (nowMs - seenMs) / 1000.0);
           const lon = h.position[1];
           const lat = h.position[0];
           const alt = h.position[2];
@@ -571,8 +608,11 @@
           const intensity = (h.intensity || 0.5);
           const spread = Math.max(0, h.spread_mps || 0);
           const pixel = 20 + Math.round(intensity * 20);
-          // Region expansion model (M1): base radius + time * spread.
-          const radius = 60 + intensity * 140 + elapsedS * spread * 8.0;
+          const nearestUavM = nearestUavDistanceMeters(h.position || [lat, lon, alt], uavs);
+          const dyn = dynamicFireRadius(h.id, intensity, spread, nearestUavM, nowMs);
+          const radius = dyn.radius;
+          areaM2 += Math.PI * radius * radius;
+          if (dyn.observed) observedCount += 1;
           let e = hotspotMap.get(h.id);
           if (!e) {
             e = viewer.entities.add({
@@ -590,7 +630,7 @@
                 semiMajorAxis: radius,
                 height: 0,
                 material: Cesium.Color.fromBytes(239, 68, 68, 36),
-                outline: true,
+                outline: false,
                 outlineColor: Cesium.Color.fromBytes(239, 68, 68, 180),
                 outlineWidth: 1,
                 show: layerState.showRegion
@@ -625,9 +665,13 @@
           if (!live.has(id)) {
             viewer.entities.remove(entity);
             hotspotMap.delete(id);
-            hotspotFirstSeen.delete(id);
+            hotspotRegionState.delete(id);
           }
         }
+        return {
+          areaKm2: (areaM2 / 1_000_000.0),
+          observedCount
+        };
       }
 
       function upsertMissionLines(uavs, targets) {
@@ -827,29 +871,18 @@
           if (legendMax) {
             legendMax.textContent = `max_fire=${maxFire} | 高危>=${FIRE_THRESH.high.toFixed(2)} 中危>=${FIRE_THRESH.mid.toFixed(2)}`;
           }
-          const areaKm2 = state.fire_hotspots.length
-            ? (
-              state.fire_hotspots
-                .map(h => {
-                  const seenMs = hotspotFirstSeen.get(h.id) || state.timestamp;
-                  const elapsedS = Math.max(0, (state.timestamp - seenMs) / 1000.0);
-                  const r = 60 + (h.intensity || 0.5) * 140 + elapsedS * Math.max(0, (h.spread_mps || 0)) * 8.0;
-                  return Math.PI * r * r;
-                })
-                .reduce((a, b) => a + b, 0) / 1_000_000.0
-            ).toFixed(3)
-            : '0.000';
+          upsertCesiumEntities(state.uavs);
+          upsertCesiumLinks(state.uavs, state.links);
+          const fireMetrics = upsertFireHotspots(state.fire_hotspots, state.uavs, state.timestamp || Date.now());
+          const areaKm2 = fireMetrics.areaKm2.toFixed(3);
 
           const statusEl = document.getElementById('meta-status');
           if (statusEl) {
             const fdsRawCount = state.fds_raw && state.fds_raw.values && typeof state.fds_raw.values === 'object'
               ? Object.keys(state.fds_raw.values).length
               : 0;
-            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">fds_raw=${fdsRawCount}</span><span class="badge">basemap=${basemapMode}</span>`;
+            statusEl.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">observed_fire=${fireMetrics.observedCount}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">fire_area_km2=${areaKm2}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">exec=${missionExec}</span><span class="badge">done=${missionDone}</span><span class="badge">fail=${missionFail}</span><span class="badge">fds_raw=${fdsRawCount}</span><span class="badge">basemap=${basemapMode}</span>`;
           }
-          upsertCesiumEntities(state.uavs);
-          upsertCesiumLinks(state.uavs, state.links);
-          upsertFireHotspots(state.fire_hotspots, state.timestamp || Date.now());
           upsertMissionLines(state.uavs, state.mission_targets);
           renderFdsRaw(state.fds_raw);
           updateDeck(state.uavs, state.links);
