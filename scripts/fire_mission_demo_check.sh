@@ -2,35 +2,30 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/demo_common.sh"
 BASE_PORT="${1:-8899}"
 INSTANCE_COUNT="${2:-4}"
 TOTAL_CORES="${3:-4}"
+TAG="fire_mission_demo_check"
 
 set +u
 source /opt/ros/humble/setup.bash
 source "${ROOT_DIR}/ros2_ws/install/setup.bash"
 set -u
 
-PORT="$(python3 - <<PY
-import socket
-base = int("${BASE_PORT}")
-for p in range(base, base + 50):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.bind(("127.0.0.1", p))
-        print(p)
-        break
-    except OSError:
-        pass
-    finally:
-        s.close()
-else:
-    print(base)
-PY
-)"
+PORT="$(pick_available_port "${BASE_PORT}" 50)"
+if [[ "${PORT}" == "-1" ]]; then
+  log_error "${TAG}" "E_PORT_FULL" "从端口 ${BASE_PORT} 起未找到可用端口"
+  exit 4
+fi
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
-"${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" >/tmp/fire_demo_start.log 2>&1
+if ! "${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" >/tmp/fire_demo_start.log 2>&1; then
+  log_error "${TAG}" "E_START_FAIL" "启动 fire mission demo 失败"
+  echo "--- start log ---"
+  cat /tmp/fire_demo_start.log || true
+  exit 1
+fi
 
 cleanup() {
   "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
@@ -134,7 +129,7 @@ if pos1 is None:
 move = distance_m(pos0, pos1)
 print(f"mission_msgs={probe.seen} target_count={probe.last} tracked_uav={tracked} moved_m={move:.2f}")
 if move < 2.0:
-    print("[fire_mission_demo_check] FAIL: UAV 位移过小，未观察到任务驱动运动")
+    print("[fire_mission_demo_check][ERROR][E_MOVE_SMALL] UAV 位移过小，未观察到任务驱动运动")
     raise SystemExit(1)
-print(f"[fire_mission_demo_check] PASS: 火场任务链路有效 (port={PORT})")
+print(f"[fire_mission_demo_check][INFO] PASS: 火场任务链路有效 (port={PORT})")
 PY
