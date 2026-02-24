@@ -51,12 +51,6 @@ def fetch_state():
     data = opener.open(url, timeout=1.5).read().decode("utf-8")
     return json.loads(data)
 
-def pick_one(state):
-    if not state.get("uavs"):
-        return None, None
-    u = state["uavs"][0]
-    return u["id"], u["position"]
-
 def distance_m(a, b):
     dlat = (a[0] - b[0]) * 111000.0
     dlon = (a[1] - b[1]) * 111000.0
@@ -70,19 +64,24 @@ class PlanProbe(Node):
         self.seen = 0
         self.last = 0
         self.tracked_id = None
+        self.target_position = None
+        self.assign_time = None
         self.create_subscription(MissionPlan, "/swarm/mission_targets", self._cb, 10)
     def _cb(self, msg: MissionPlan):
         self.seen += 1
         self.last = len(msg.targets)
         if msg.targets:
             self.tracked_id = msg.targets[0].uav_id
+            if self.target_position is None:
+                self.target_position = list(msg.targets[0].position)
+                self.assign_time = time.time()
 
 probe = PlanProbe()
 deadline = time.time() + 8
 while time.time() < deadline and probe.seen == 0:
     rclpy.spin_once(probe, timeout_sec=0.2)
 
-if probe.seen == 0 or probe.last == 0 or not probe.tracked_id:
+if probe.seen == 0 or probe.last == 0 or not probe.tracked_id or not probe.target_position:
     print("[fire_mission_demo_check] FAIL: mission planner 未产出目标")
     probe.destroy_node()
     rclpy.shutdown()
@@ -106,6 +105,8 @@ if state0 is None:
     raise SystemExit(1)
 
 tracked = probe.tracked_id
+target_pos = probe.target_position
+assign_time = probe.assign_time or time.time()
 def pick_by_id(state, uid):
     for u in state.get("uavs", []):
         if u.get("id") == uid:
@@ -116,18 +117,35 @@ pos0 = pick_by_id(state0, tracked)
 if pos0 is None:
     print("[fire_mission_demo_check] FAIL: 在初始状态中未找到被分配任务的 UAV")
     raise SystemExit(1)
-time.sleep(3.0)
-state1 = fetch_state()
-pos1 = pick_by_id(state1, tracked)
+completion_sec = None
+deadline = time.time() + 10.0
+pos1 = None
+while time.time() < deadline:
+    state1 = fetch_state()
+    pos1 = pick_by_id(state1, tracked)
+    if pos1 is None:
+        time.sleep(0.2)
+        continue
+    if distance_m(pos1, target_pos) <= 8.0:
+        completion_sec = time.time() - assign_time
+        break
+    time.sleep(0.2)
+
 probe.destroy_node()
 rclpy.shutdown()
 
+if completion_sec is None:
+    print("[fire_mission_demo_check][ERROR][E_MISSION_TIMEOUT] 未在窗口内完成任务")
+    raise SystemExit(1)
 if pos1 is None:
-    print("[fire_mission_demo_check] FAIL: 在后续状态中未找到被分配任务的 UAV")
+    print("[fire_mission_demo_check][ERROR][E_MISSION_TRACK_LOSS] 在后续状态中未找到被分配任务的 UAV")
     raise SystemExit(1)
 
 move = distance_m(pos0, pos1)
-print(f"mission_msgs={probe.seen} target_count={probe.last} tracked_uav={tracked} moved_m={move:.2f}")
+print(
+    f"mission_msgs={probe.seen} target_count={probe.last} tracked_uav={tracked} "
+    f"moved_m={move:.2f} completion_s={completion_sec:.2f}"
+)
 if move < 2.0:
     print("[fire_mission_demo_check][ERROR][E_MOVE_SMALL] UAV 位移过小，未观察到任务驱动运动")
     raise SystemExit(1)

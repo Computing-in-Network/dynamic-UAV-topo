@@ -32,7 +32,7 @@
 - 计划：接入地形/场景遮挡接口，保留现有近似模式作 fallback。
 
 3. 压测指标体系完善
-- 当前：`observed_hz` + `context_switch_hz` + 拓扑帧耗时。
+- 当前：在 `scripts/stress_100hz.sh` 增加端到端延迟与掉包率统计（p95 延迟、drop_ratio）。
 - 计划：增加端到端延迟、掉包率、任务完成时延统计。
 
 ## P2（后续扩展）
