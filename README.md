@@ -158,6 +158,8 @@
 
 说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
 
+当前已提供首版 FDS 文件适配器：`scripts/fire_adapter_fds.py`（详见 `docs/fds-fire-adapter.md`）。
+
 已实现可视化叠加：
 
 - 火情热点图层（`fire_hotspots`）：地图显示火点标记、地面影响圈、强度颜色。
@@ -168,6 +170,12 @@
 
 ```bash
 ./scripts/fire_mission_demo_start.sh 4 4 8899
+```
+
+使用 FDS 文件源启动：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv
 ```
 
 一键停止：
