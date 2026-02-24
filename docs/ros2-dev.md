@@ -102,6 +102,16 @@
 - 第一阶段使用大高度差（期望 `is_occluded=true`），第二阶段使用小高度差（期望 `is_occluded=false`）。
 - 输出通过标准为 `occluded_first=True occluded_second=False`。
 
+拓展：拓扑遮挡参数（`swarm_topology_analyzer_node`）
+
+- `occlusion_mode`：支持 `none|altitude_gap|terrain_csv`，默认 `altitude_gap`。
+- `occlusion_altitude_gap_m`：高度差阈值（`altitude_gap` 模式）。
+- `occlusion_penalty`：遮挡发生时 link 权重削减比例。
+- `occlusion_terrain_csv`：`lat,lon,alt` CSV 路径（`terrain_csv` 模式）。
+- `occlusion_terrain_clearance_m`：连线到障碍面最小安全高度（`terrain_csv` 模式）。
+- `occlusion_terrain_samples`：连线采样点数（`terrain_csv` 模式）。
+- `terrain_csv` 加载失败时自动回退到 `altitude_gap`。
+
 ## 100Hz 压力测试
 
 ```bash
@@ -129,6 +139,15 @@
 - `fire_adapter_demo.py` 按固定频率发布 `/env/fire_state`（热点移动轨迹）。
 - `mission_planner.py` 订阅 `/env/fire_state + /swarm/state`，发布 `/swarm/mission_targets`。
 - `swarm_uav_manager_node` 在 `mission_follow_enabled=true` 时会按目标点推进 UAV 位置。
+- `mission_planner.py` 采用状态化评分策略，默认会在以下约束下生成一次性规划：
+  - 最小火强度过滤：`min_intensity`
+  - 距离惩罚：`distance_cost_scale`
+  - 火情复访增强：`revisit_bonus`、`revisit_cycle_sec`
+  - 任务保持稳定：`hold_bonus`、`hold_distance_m`、`hold_time_sec`
+  - 切换惩罚：`reassign_penalty`
+  - 覆盖散布约束：`coverage_min_distance_m`、`coverage_density_penalty`
+- 关键参数可直接通过 ROS 参数注入：
+  - `ros2 run ... mission_planner --ros-args -p min_intensity:=0.25 -p replan_hz:=1.0 -p revisit_bonus:=0.25 ...`
 - 验收脚本会验证：
   - mission 目标已发布
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
