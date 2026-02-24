@@ -212,6 +212,14 @@
 ./scripts/dual_view_demo_stop.sh
 ```
 
+双视角同步验收：
+
+```bash
+./scripts/dual_view_demo_check.sh 8899 2 2 mock 30.0 2500
+```
+
+布局建议与排障说明见：`docs/dual-view-demo.md`
+
 ## 备注
 
 - 拓扑分析当前为阶段算法（距离 + 高度差遮挡近似），已通过统一 `links` 接口输出。
