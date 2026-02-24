@@ -71,6 +71,18 @@
 
 打开浏览器：`http://127.0.0.1:8899`
 
+### 语义网络退化演示（非默认）
+
+```bash
+./scripts/semantic_net_demo.sh 4 4 8899 0.2 weight weight 0 5 1
+```
+
+参数说明：
+
+- 默认退化链路：`packet_drop_rate=0.2`
+- 默认 `drop_mode=weight`、`throttle_mode=weight`
+- 默认可复现种子：`seed=1`
+
 说明：
 
 - 默认首页为 Cesium + Deck.gl 版本
@@ -81,6 +93,7 @@
 
 ```bash
 ./scripts/visual_demo_stop.sh
+./scripts/semantic_net_demo_stop.sh
 ```
 
 ### 一键验收（推荐）
