@@ -163,6 +163,7 @@
 已实现可视化叠加：
 
 - 火情热点图层（`fire_hotspots`）：地图显示火点标记、地面影响圈、强度颜色。
+- 火区面图层（`fire_regions`）：按热点聚类与扩散速度估算连续火区半径。
 - 任务图层（`mission_targets`）：显示 UAV 到任务目标的虚线。
 - 右上角状态摘要：`fire`、`max_fire`、`mission`、`basemap`。
 
@@ -201,6 +202,7 @@
 - 默认：`http://127.0.0.1:8899/cesium`
 - 强制在线底图：`http://127.0.0.1:8899/cesium?basemap=osm`
 - 强制网格底图：`http://127.0.0.1:8899/cesium?basemap=grid`
+- 关闭火区面图层：`http://127.0.0.1:8899/cesium?fire_region=off`
 
 ## 备注
 

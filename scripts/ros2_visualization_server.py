@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from glob import glob
 
+from fire_region_model import build_fire_regions
+
 ros_lib_paths = [
     "/opt/ros/humble/lib",
     "/opt/ros/humble/local/lib",
@@ -54,11 +56,13 @@ except ModuleNotFoundError:
 class SwarmStateCache:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._fire_first_seen_ms: dict[str, int] = {}
         self._payload = {
             "timestamp": 0,
             "uavs": [],
             "links": [],
             "fire_hotspots": [],
+            "fire_regions": [],
             "mission_targets": [],
         }
 
@@ -90,6 +94,7 @@ class SwarmStateCache:
             "uavs": uavs,
             "links": links,
             "fire_hotspots": self._payload.get("fire_hotspots", []),
+            "fire_regions": self._payload.get("fire_regions", []),
             "mission_targets": self._payload.get("mission_targets", []),
         }
 
@@ -97,6 +102,7 @@ class SwarmStateCache:
             self._payload = payload
 
     def update_fire(self, msg: FireState) -> None:
+        stamp_ms = int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000)
         fire = [
             {
                 "id": hs.id,
@@ -106,8 +112,10 @@ class SwarmStateCache:
             }
             for hs in msg.hotspots
         ]
+        regions = build_fire_regions(fire, stamp_ms, self._fire_first_seen_ms)
         with self._lock:
             self._payload["fire_hotspots"] = fire
+            self._payload["fire_regions"] = regions
 
     def update_mission(self, msg: MissionPlan) -> None:
         targets = [
