@@ -24,6 +24,8 @@
   - `scripts/mission_planner.py`（热点到 UAV 的贪心任务分配）
   - `swarm_uav_manager_node` 支持 `mission_follow_enabled` 按目标点推进
   - 一键脚本：`scripts/fire_mission_demo_start.sh` / `scripts/fire_mission_demo_check.sh`
+- 新增 GPU/高阶拓扑 PoC：
+  - `scripts/ricci_cuda_poc.py`（无向图边权共邻居评分 CPU/CUDA 对比脚本）
 
 ## 下一步（按 Spec 推进）
 
