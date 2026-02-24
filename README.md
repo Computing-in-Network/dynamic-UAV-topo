@@ -278,6 +278,14 @@
 - 所有 `tests/test_*.py` 逐个执行
 - `scripts/ricci_cuda_poc.py --disable-cuda --nodes 12 --density 0.2 --repeat 2`
 
+### 本地发布前检查
+
+```bash
+./scripts/release_smoke.sh
+```
+
+用于离线快速复核（无需 ROS/FDS/PX4/CUDA），结果中返回 `PASS: release smoke` 说明通过。
+
 建议本地启用中文 commit 模板：
 
 ```bash
