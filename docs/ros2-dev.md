@@ -121,10 +121,11 @@
 说明：
 
 - 脚本会启动 manager + topology，并持续采集 `/swarm/state` 消息数。
-- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`。
+- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`、`e2e_latency_ms(avg/p95)`、`drop_ratio`、`interval_ms(jitter/max)`。
 - 当前通过标准：
   - 拓扑 `status=PASS`
   - `observed_hz >= 0.8 * target_hz`
+  - `drop_ratio <= 0.20`
 
 ## Fire Mission MVP（模拟 FDS 输出）
 
@@ -151,6 +152,7 @@
 - 验收脚本会验证：
   - mission 目标已发布
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
+  - mission 完成时延统计（`completion_s`）
 
 ## 快速查看状态
 
