@@ -15,8 +15,15 @@ add_executable(swarm_topology_analyzer_node
 target_compile_features(swarm_topology_analyzer_node PUBLIC cxx_std_20)
 ament_target_dependencies(swarm_topology_analyzer_node rclcpp swarm_interfaces)
 
+add_executable(swarm_semantic_net_node
+  src/swarm_semantic_net_node.cpp
+)
+target_compile_features(swarm_semantic_net_node PUBLIC cxx_std_20)
+ament_target_dependencies(swarm_semantic_net_node rclcpp swarm_interfaces)
+
 install(TARGETS
   swarm_topology_analyzer_node
+  swarm_semantic_net_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

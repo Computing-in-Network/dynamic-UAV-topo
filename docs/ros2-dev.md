@@ -154,6 +154,31 @@
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
   - mission 完成时延统计（`completion_s`）
 
+## 语义网络退化模拟
+
+```bash
+./scripts/semantic_net_demo.sh 4 4 8899 0.2 weight weight 0 0 1
+```
+
+参数说明：
+
+- `PACKET_DROP_RATE`（默认 `0.2`）：`packet_drop_rate`
+- `DROP_MODE`（默认 `weight`）：`none|fixed|weight`
+- `THROTTLE_MODE`（默认 `weight`）：`none|weight`
+- `DELAY_BASE_MS`（默认 `0`）：固定延迟基线（ms）
+- `DELAY_SCALE_MS`（默认 `0`）：按权重衰减的最大额外延迟（ms）
+- `SEED`（默认 `0`）：复现实验种子
+
+`swarm_semantic_net_node` 主要参数：
+
+- `input_topic`（默认 `/swarm/state`）
+- `output_topic`（默认 `/swarm/state_semantic`）
+- `packet_drop_rate`、`drop_mode`
+- `weight_dropout_scale`、`min_link_weight`
+- `jitter_std`
+- `topic_rate_min_hz`、`topic_rate_max_hz`
+- `delay_base_ms`、`delay_weight_scale_ms`、`delay_jitter_ms`
+
 ## 快速查看状态
 
 ```bash
