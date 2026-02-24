@@ -286,6 +286,14 @@
 
 用于离线快速复核（无需 ROS/FDS/PX4/CUDA），结果中返回 `PASS: release smoke` 说明通过。
 
+可选参数：
+
+```bash
+./scripts/release_smoke.sh --ros      # 强制执行 ROS2 构建 smoke
+./scripts/release_smoke.sh --no-ros   # 强制跳过 ROS2 构建 smoke（默认）
+./scripts/release_smoke.sh --help
+```
+
 建议本地启用中文 commit 模板：
 
 ```bash

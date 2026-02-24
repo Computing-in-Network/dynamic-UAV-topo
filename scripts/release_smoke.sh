@@ -6,6 +6,30 @@ cd "${ROOT_DIR}"
 
 log() { echo "[release_smoke] $*"; }
 fail() { log "FAIL: $*"; exit 1; }
+usage() {
+  cat <<'USAGE'
+用法：scripts/release_smoke.sh [--ros|--no-ros]
+
+参数：
+  --ros      强制执行可选 ROS2/C++ 构建检查（需要有 ROS2 与 colcon）
+  --no-ros   跳过 ROS2/C++ 检查（默认自动按环境检测）
+  --help     打印帮助
+USAGE
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+ROS_MODE="auto"
+if [[ "${1:-}" == "--ros" ]]; then
+  ROS_MODE="force"
+elif [[ "${1:-}" == "--no-ros" ]]; then
+  ROS_MODE="skip"
+elif [[ -n "${1:-}" ]]; then
+  fail "未知参数: ${1} (支持 --ros/--no-ros)"
+fi
 
 echo "[release_smoke] start"
 
@@ -63,6 +87,36 @@ if not isinstance(backend, dict) or "available" not in backend:
 PY
 then
   fail "ricci_cuda_poc 回归检查未通过"
+fi
+
+run_ros_smoke=false
+if [[ "${ROS_MODE}" == "force" ]]; then
+  run_ros_smoke=true
+elif [[ "${ROS_MODE}" == "auto" ]]; then
+  if command -v colcon >/dev/null 2>&1 && [[ -f /opt/ros/humble/setup.bash ]]; then
+    run_ros_smoke=true
+  else
+    log "skip ros smoke: 未检测到 ROS2/colcon"
+  fi
+fi
+
+if [[ "${run_ros_smoke}" == true ]]; then
+  log "run ros smoke checks"
+  if ! bash -lc '
+    set -euo pipefail
+    source /opt/ros/humble/setup.bash
+    if [[ -f "ros2_ws/install/setup.bash" ]]; then
+      source ros2_ws/install/setup.bash
+    fi
+    colcon build \
+      --base-paths ros2_ws \
+      --build-base /tmp/release_smoke_build \
+      --install-base /tmp/release_smoke_install \
+      --packages-select swarm_interfaces swarm_uav_manager swarm_topology_analyzer \
+      --merge-install
+  '; then
+    fail "ROS2/C++ 构建 smoke 未通过"
+  fi
 fi
 
 log "PASS: release smoke"
