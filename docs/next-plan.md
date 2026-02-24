@@ -44,7 +44,8 @@
 - 火情时序回放、图层开关、任务解释（为什么分配给该 UAV）。
 
 3. GPU/高阶拓扑方向
-- 逐步评估 Ricci Curvature 与 CUDA 射线检测接口的工程化路径。
+- 2026-02-24：已完成 Ricci/CUDA PoC 评估脚本（`scripts/ricci_cuda_poc.py`），对无向拓扑图进行 CPU/CUDA 执行时延与数值误差对比。
+- 后续：结合后端真值场景，评估 Ricci Curvature 在路径规划中的收益/成本，逐步决策是否将 GPU 管线上链。
 
 ## 验收里程碑（建议）
 

@@ -168,6 +168,30 @@
 - `/swarm/state` 实测频率（`observed_hz`）
 - 系统 context switch 频率（`context_switch_hz`）
 
+## Ricci/CUDA PoC 评估（#10）
+
+```bash
+./scripts/ricci_cuda_poc.py --nodes 600 --density 0.05 --seed 2026 --repeat 6 --warmup 1
+```
+
+可复现参数：
+
+- `--nodes`: 节点数，默认 `600`
+- `--density`: 无向图边密度（`[0,1]`）
+- `--seed`: 随机数种子
+- `--repeat`: 计时重复次数（去除 `--warmup` 预热）
+- `--warmup`: 预热次数（不计入指标）
+- `--disable-cuda`: 无需 CuPy 时可关闭 CUDA 通道
+
+默认输出为 JSON，包括：
+
+- `backend.cpu`：CPU 平均/中位数/95 分位时延
+- `backend.cuda`：CUDA（若有）平均/中位数/95 分位时延及可用状态
+- `graph`：边数和实际密度
+- `accuracy.max_abs_diff`：CPU 与 CUDA 结果最大绝对差
+
+更多说明见：`docs/ricci-cuda-poc.md`
+
 ## Fire Mission MVP（FDS 接入预演）
 
 说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
