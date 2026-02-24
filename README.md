@@ -266,6 +266,18 @@
 - 详细规范见：`docs/git-flow.md`
 - Issue / Commit / PR 统一使用中文，并写清背景、改动、验证。
 
+## 持续集成（CI）
+
+### 触发
+
+`develop` 分支的 push 与 PR 会自动触发 `Python Smoke CI`。
+
+### 内容
+
+- `python3 -m py_compile scripts/*.py tests/*.py`
+- 所有 `tests/test_*.py` 逐个执行
+- `scripts/ricci_cuda_poc.py --disable-cuda --nodes 12 --density 0.2 --repeat 2`
+
 建议本地启用中文 commit 模板：
 
 ```bash
