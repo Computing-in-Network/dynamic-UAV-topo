@@ -75,6 +75,7 @@
 
 - 默认首页为 Cesium + Deck.gl 版本
 - 旧版轻量页面：`http://127.0.0.1:8899/legacy`
+- 若目标端口被占用，启动脚本会自动回退到附近可用端口并打印实际端口
 
 ### 一键停止
 
@@ -203,6 +204,13 @@
 - 强制在线底图：`http://127.0.0.1:8899/cesium?basemap=osm`
 - 强制网格底图：`http://127.0.0.1:8899/cesium?basemap=grid`
 - 关闭火区面图层：`http://127.0.0.1:8899/cesium?fire_region=off`
+
+双视角演示预留脚本（Gazebo 特写 + 前端全景）：
+
+```bash
+./scripts/dual_view_demo_start.sh 4 4 8899 mock
+./scripts/dual_view_demo_stop.sh
+```
 
 ## 备注
 
