@@ -6,6 +6,9 @@ source "${ROOT_DIR}/scripts/demo_common.sh"
 BASE_PORT="${1:-8899}"
 INSTANCE_COUNT="${2:-4}"
 TOTAL_CORES="${3:-4}"
+FIRE_SOURCE_MODE="${4:-demo}"
+FDS_INPUT_PATH="${5:-${ROOT_DIR}/docs/examples/fds_hotspots_sample.csv}"
+FDS_INPUT_FORMAT="${6:-csv}"
 TAG="fire_mission_demo_check"
 
 set +u
@@ -20,7 +23,7 @@ if [[ "${PORT}" == "-1" ]]; then
 fi
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
-if ! "${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" >/tmp/fire_demo_start.log 2>&1; then
+if ! "${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" "${FIRE_SOURCE_MODE}" "${FDS_INPUT_PATH}" "${FDS_INPUT_FORMAT}" >/tmp/fire_demo_start.log 2>&1; then
   log_error "${TAG}" "E_START_FAIL" "启动 fire mission demo 失败"
   echo "--- start log ---"
   cat /tmp/fire_demo_start.log || true
@@ -42,6 +45,7 @@ from rclpy.node import Node
 from swarm_interfaces.msg import MissionPlan
 
 PORT = int("${PORT}")
+FIRE_SOURCE_MODE = "${FIRE_SOURCE_MODE}"
 url = f"http://127.0.0.1:{PORT}/api/swarm_state"
 
 proxy_handler = urllib.request.ProxyHandler({})
@@ -103,6 +107,36 @@ if state0 is None:
     probe.destroy_node()
     rclpy.shutdown()
     raise SystemExit(1)
+
+if FIRE_SOURCE_MODE == "fds":
+    fire_shapes = set()
+    fire_deadline = time.time() + 6.0
+    while time.time() < fire_deadline:
+        try:
+            s = fetch_state()
+            hotspots = s.get("fire_hotspots", [])
+            if hotspots:
+                sig = tuple(
+                    sorted(
+                        (
+                            str(h.get("id", "")),
+                            round(float(h.get("position", [0, 0, 0])[0]), 6),
+                            round(float(h.get("position", [0, 0, 0])[1]), 6),
+                        )
+                        for h in hotspots
+                    )
+                )
+                fire_shapes.add(sig)
+                if len(fire_shapes) >= 2:
+                    break
+        except Exception:
+            pass
+        time.sleep(0.4)
+    if len(fire_shapes) < 2:
+        print("[fire_mission_demo_check][ERROR][E_FDS_STATIC] FDS 模式火情未出现时序变化")
+        probe.destroy_node()
+        rclpy.shutdown()
+        raise SystemExit(1)
 
 tracked = probe.tracked_id
 target_pos = probe.target_position

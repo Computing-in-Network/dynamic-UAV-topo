@@ -10,6 +10,7 @@
 - `jsonl`
 
 默认按“文件轮询”读取，文件被更新后会重新解析并发布最新时刻的火点。
+默认播放模式为 `timeline`，会按 `time_s` 连续回放热点序列。
 
 ### CSV 列定义
 
@@ -47,7 +48,23 @@
 - `time_mode:=ros_now`  
   忽略源时间，使用当前 ROS 时间戳。
 
-## 4. 启动示例
+新增参数：
+
+- `playback_mode:=timeline|latest`：时间轴回放或仅最新帧。
+- `replay_speed:=1.0`：回放倍速。
+- `loop_timeline:=true|false`：是否循环回放。
+- `source_time_scale:=1.0`：源时间缩放（如输入毫秒可设 `0.001`）。
+- `enforce_monotonic_stamp:=true|false`：是否强制时间戳单调递增。
+
+## 4. 坐标映射增强
+
+除 `xy_swap` 外，新增以下参数用于对齐 FDS 场景坐标：
+
+- `xy_yaw_deg`：水平面旋转角（度）
+- `x_scale/y_scale/z_scale`：各轴缩放
+- `x_offset_m/y_offset_m/z_offset_m`：各轴偏移（米）
+
+## 5. 启动示例
 
 仅启动适配器：
 
@@ -58,7 +75,9 @@ python3 scripts/fire_adapter_fds.py --ros-args \
   -p input_format:=csv \
   -p origin_lat:=39.9042 \
   -p origin_lon:=116.4074 \
-  -p time_mode:=source_offset
+  -p time_mode:=source_offset \
+  -p playback_mode:=timeline \
+  -p replay_speed:=1.0
 ```
 
 在 Fire Mission Demo 中启用 FDS 输入：
@@ -67,7 +86,13 @@ python3 scripts/fire_adapter_fds.py --ros-args \
 ./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv
 ```
 
-## 5. 回退方案
+可选补充参数：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv source_offset 1.5
+```
+
+## 6. 回退方案
 
 若 FDS 输入异常，可切回原始模拟火情：
 
