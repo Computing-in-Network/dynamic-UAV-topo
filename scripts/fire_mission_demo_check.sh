@@ -110,10 +110,14 @@ if state0 is None:
 
 if FIRE_SOURCE_MODE == "fds":
     fire_shapes = set()
-    fire_deadline = time.time() + 6.0
+    fire_deadline = time.time() + 12.0
+    ts_seen = set()
     while time.time() < fire_deadline:
         try:
             s = fetch_state()
+            ts = int(s.get("timestamp", 0))
+            if ts > 0:
+                ts_seen.add(ts)
             hotspots = s.get("fire_hotspots", [])
             if hotspots:
                 sig = tuple(
@@ -122,17 +126,19 @@ if FIRE_SOURCE_MODE == "fds":
                             str(h.get("id", "")),
                             round(float(h.get("position", [0, 0, 0])[0]), 6),
                             round(float(h.get("position", [0, 0, 0])[1]), 6),
+                            round(float(h.get("intensity", 0.0)), 3),
+                            round(float(h.get("spread_mps", 0.0)), 3),
                         )
                         for h in hotspots
                     )
                 )
                 fire_shapes.add(sig)
-                if len(fire_shapes) >= 2:
+                if len(fire_shapes) >= 2 and len(ts_seen) >= 2:
                     break
         except Exception:
             pass
         time.sleep(0.4)
-    if len(fire_shapes) < 2:
+    if len(fire_shapes) < 2 or len(ts_seen) < 2:
         print("[fire_mission_demo_check][ERROR][E_FDS_STATIC] FDS 模式火情未出现时序变化")
         probe.destroy_node()
         rclpy.shutdown()
@@ -155,7 +161,11 @@ completion_sec = None
 deadline = time.time() + 10.0
 pos1 = None
 while time.time() < deadline:
-    state1 = fetch_state()
+    try:
+        state1 = fetch_state()
+    except Exception:
+        time.sleep(0.2)
+        continue
     pos1 = pick_by_id(state1, tracked)
     if pos1 is None:
         time.sleep(0.2)

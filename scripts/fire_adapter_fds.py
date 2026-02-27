@@ -102,6 +102,10 @@ class FireAdapterFds(Node):
         self.last_payload = payload
         self.last_source_time_s = frame_ts
         self.last_published_idx = frame_idx
+        self.get_logger().info(
+            f"publish frame idx={frame_idx}/{max(0, len(self.timeline_ts)-1)} source_t={frame_ts:.3f} hotspots={len(payload)}",
+            throttle_duration_sec=2.0,
+        )
         self._publish(frame_ts, payload)
 
     def _refresh_timeline_from_file(self) -> None:
