@@ -8,6 +8,8 @@ find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Hotspot.msg"
   "msg/FireState.msg"
+  "msg/FireRegion.msg"
+  "msg/FireRegionState.msg"
   "msg/LinkState.msg"
   "msg/MissionTarget.msg"
   "msg/MissionPlan.msg"
