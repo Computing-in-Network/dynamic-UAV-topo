@@ -13,6 +13,8 @@ BASE_PORT="${3:-8899}"
 FIRE_SOURCE_MODE="${4:-demo}"
 FDS_INPUT_PATH="${5:-${ROOT_DIR}/docs/examples/fds_hotspots_sample.csv}"
 FDS_INPUT_FORMAT="${6:-csv}"
+FDS_TIME_MODE="${7:-source_offset}"
+FDS_REPLAY_SPEED="${8:-2.0}"
 DRY_RUN="${DEMO_DRY_RUN:-0}"
 
 if [[ "${FIRE_SOURCE_MODE}" != "demo" && "${FIRE_SOURCE_MODE}" != "fds" ]]; then
@@ -95,7 +97,10 @@ elif [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
     -p publish_hz:=2.0 \
     -p input_path:="${FDS_INPUT_PATH}" \
     -p input_format:="${FDS_INPUT_FORMAT}" \
-    -p time_mode:=source_offset \
+    -p time_mode:="${FDS_TIME_MODE}" \
+    -p playback_mode:=timeline \
+    -p replay_speed:="${FDS_REPLAY_SPEED}" \
+    -p loop_timeline:=true \
     > /tmp/fire_adapter_fds.log 2>&1 &
   FIRE_PID=$!
 fi
@@ -112,6 +117,9 @@ VIS_PID=$!
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
 log_info "${TAG}" "manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID} fire_source=${FIRE_SOURCE_MODE}"
+if [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
+  log_info "${TAG}" "fds_input=${FDS_INPUT_PATH} format=${FDS_INPUT_FORMAT} time_mode=${FDS_TIME_MODE} replay_speed=${FDS_REPLAY_SPEED}"
+fi
 if [[ "${VIS_PORT}" != "${BASE_PORT}" ]]; then
   log_warn "${TAG}" "端口 ${BASE_PORT} 被占用，已自动回退到 ${VIS_PORT}"
 fi
