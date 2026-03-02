@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import ctypes
+import math
 import os
 import sys
 import threading
@@ -24,7 +25,7 @@ os.environ["LD_LIBRARY_PATH"] = ld_library_path
 try:
     import rclpy
     from rclpy.node import Node
-    from swarm_interfaces.msg import FireState, MissionPlan, SwarmState
+    from swarm_interfaces.msg import FireRegionState, FireState, MissionPlan, SwarmState
 except ModuleNotFoundError:
     ros_py_paths = [
         "/opt/ros/humble/local/lib/python3.10/dist-packages",
@@ -50,13 +51,14 @@ except ModuleNotFoundError:
             pass
     import rclpy
     from rclpy.node import Node
-    from swarm_interfaces.msg import FireState, MissionPlan, SwarmState
+    from swarm_interfaces.msg import FireRegionState, FireState, MissionPlan, SwarmState
 
 
 class SwarmStateCache:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._fire_first_seen_ms: dict[str, int] = {}
+        self._real_region_stamp_ms: int = 0
         self._payload = {
             "timestamp": 0,
             "uavs": [],
@@ -115,6 +117,37 @@ class SwarmStateCache:
         regions = build_fire_regions(fire, stamp_ms, self._fire_first_seen_ms)
         with self._lock:
             self._payload["fire_hotspots"] = fire
+            if self._real_region_stamp_ms + 5000 < stamp_ms:
+                self._payload["fire_regions"] = regions
+
+    def update_fire_regions(self, msg: FireRegionState) -> None:
+        stamp_ms = int(msg.stamp.sec * 1000 + msg.stamp.nanosec / 1_000_000)
+        regions = []
+        for r in msg.regions:
+            boundary = list(r.boundary)
+            center = [float(r.center[0]), float(r.center[1]), float(r.center[2])]
+            radius_m = 0.0
+            if len(boundary) >= 6:
+                for i in range(0, len(boundary), 3):
+                    lat = float(boundary[i])
+                    lon = float(boundary[i + 1])
+                    dlat = (lat - center[0]) * 111000.0
+                    dlon = (lon - center[1]) * 111000.0 * max(1e-6, math.cos(math.radians(center[0])))
+                    radius_m = max(radius_m, (dlat * dlat + dlon * dlon) ** 0.5)
+            regions.append(
+                {
+                    "id": r.id,
+                    "center": center,
+                    "radius_m": max(60.0, radius_m),
+                    "intensity": float(r.intensity),
+                    "spread_mps": float(r.spread_mps),
+                    "member_count": int(r.member_count),
+                    "boundary": boundary,
+                    "source": "fds_region",
+                }
+            )
+        with self._lock:
+            self._real_region_stamp_ms = stamp_ms
             self._payload["fire_regions"] = regions
 
     def update_mission(self, msg: MissionPlan) -> None:
@@ -131,8 +164,14 @@ class SwarmStateCache:
             self._payload["mission_targets"] = targets
 
     def get(self) -> dict:
-        with self._lock:
-            return dict(self._payload)
+        # Avoid hanging the HTTP API forever if the publisher thread holds the
+        # cache lock unexpectedly long; a best-effort snapshot is sufficient.
+        if self._lock.acquire(timeout=0.05):
+            try:
+                return dict(self._payload)
+            finally:
+                self._lock.release()
+        return dict(self._payload)
 
 class SwarmSubscriber(Node):
     def __init__(self, cache: SwarmStateCache) -> None:
@@ -141,16 +180,25 @@ class SwarmSubscriber(Node):
         swarm_topic = os.environ.get("SWARM_STATE_TOPIC", "/swarm/state")
         fire_topic = os.environ.get("FIRE_STATE_TOPIC", "/env/fire_state")
         mission_topic = os.environ.get("MISSION_TOPIC", "/swarm/mission_targets")
+        fire_region_topic = os.environ.get("FIRE_REGION_TOPIC", "/env/fire_region_state")
         self._swarm_sub = self.create_subscription(SwarmState, swarm_topic, self._on_swarm, 10)
         self._fire_sub = self.create_subscription(FireState, fire_topic, self._on_fire, 10)
+        self._fire_region_sub = self.create_subscription(
+            FireRegionState, fire_region_topic, self._on_fire_region, 10
+        )
         self._mission_sub = self.create_subscription(MissionPlan, mission_topic, self._on_mission, 10)
-        self.get_logger().info(f"subscribe swarm={swarm_topic} fire={fire_topic} mission={mission_topic}")
+        self.get_logger().info(
+            f"subscribe swarm={swarm_topic} fire={fire_topic} fire_region={fire_region_topic} mission={mission_topic}"
+        )
 
     def _on_swarm(self, msg: SwarmState) -> None:
         self._cache.update_from_msg(msg)
 
     def _on_fire(self, msg: FireState) -> None:
         self._cache.update_fire(msg)
+
+    def _on_fire_region(self, msg: FireRegionState) -> None:
+        self._cache.update_fire_regions(msg)
 
     def _on_mission(self, msg: MissionPlan) -> None:
         self._cache.update_mission(msg)

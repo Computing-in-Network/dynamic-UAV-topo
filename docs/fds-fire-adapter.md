@@ -26,6 +26,18 @@
 
 示例见：`docs/examples/fds_hotspots_sample.csv`
 
+### Region JSONL（新增）
+
+支持可选火区边界输入（默认 `jsonl`），每行一个 region：
+
+- `time_s`
+- `id`
+- `intensity`
+- `spread_mps`
+- `vertices`: `[[x_m, y_m, z_m], ...]` 至少 3 个点
+
+示例见：`docs/examples/fds_regions_sample.jsonl`
+
 ## 2. 坐标转换
 
 适配器将 FDS 局部平面坐标转换为 WGS84：
@@ -55,6 +67,10 @@
 - `loop_timeline:=true|false`：是否循环回放。
 - `source_time_scale:=1.0`：源时间缩放（如输入毫秒可设 `0.001`）。
 - `enforce_monotonic_stamp:=true|false`：是否强制时间戳单调递增。
+- `publish_regions:=true|false`：是否发布真实区域 topic。
+- `region_output_topic:=/env/fire_region_state`：区域输出 topic。
+- `region_input_path`：区域输入文件路径。
+- `region_input_format:=jsonl|csv`：区域输入格式。
 
 ## 4. 坐标映射增强
 
@@ -71,8 +87,11 @@
 ```bash
 python3 scripts/fire_adapter_fds.py --ros-args \
   -p output_topic:=/env/fire_state \
+  -p region_output_topic:=/env/fire_region_state \
   -p input_path:=docs/examples/fds_hotspots_sample.csv \
+  -p region_input_path:=docs/examples/fds_regions_sample.jsonl \
   -p input_format:=csv \
+  -p region_input_format:=jsonl \
   -p origin_lat:=39.9042 \
   -p origin_lon:=116.4074 \
   -p time_mode:=source_offset \
