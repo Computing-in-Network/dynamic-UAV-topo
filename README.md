@@ -305,6 +305,8 @@ P0 当前已明确两类输入契约：
 
 用于离线快速复核（无需 ROS/FDS/PX4/CUDA），结果中返回 `PASS: release smoke` 说明通过。
 
+若本机具备 ROS2 与已构建的工作区，`release_smoke.sh` 还会继续执行 Fire Mission 默认 FDS 链路验收（即调用 `fire_mission_demo_check.sh`）。
+
 可选参数：
 
 ```bash

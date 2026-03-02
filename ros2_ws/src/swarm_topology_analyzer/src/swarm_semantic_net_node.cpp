@@ -198,7 +198,8 @@ class SwarmSemanticNetNode : public rclcpp::Node {
     if (delay_ms > 0.0) {
       const double jitter_delay = delay_jitter_dist_(rng_);
       std::this_thread::sleep_for(
-          std::chrono::microseconds(static_cast<long long>(std::max(0.0, (delay_ms + jitter_delay) * 1000.0)));
+          std::chrono::microseconds(
+              static_cast<long long>(std::max(0.0, (delay_ms + jitter_delay) * 1000.0))));
     }
 
     if (link_report_every_n_ > 0 &&

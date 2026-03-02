@@ -103,11 +103,12 @@ fi
 if [[ "${run_ros_smoke}" == true ]]; then
   log "run ros smoke checks"
   if ! bash -lc '
-    set -euo pipefail
+    set -eo pipefail
     source /opt/ros/humble/setup.bash
     if [[ -f "ros2_ws/install/setup.bash" ]]; then
       source ros2_ws/install/setup.bash
     fi
+    set -u
     colcon build \
       --base-paths ros2_ws \
       --build-base /tmp/release_smoke_build \
@@ -116,6 +117,19 @@ if [[ "${run_ros_smoke}" == true ]]; then
       --merge-install
   '; then
     fail "ROS2/C++ 构建 smoke 未通过"
+  fi
+
+  log "run fire mission fds acceptance"
+  if ! bash -lc '
+    set -eo pipefail
+    source /opt/ros/humble/setup.bash
+    if [[ -f "ros2_ws/install/setup.bash" ]]; then
+      source ros2_ws/install/setup.bash
+    fi
+    set -u
+    ./scripts/fire_mission_demo_check.sh 8899 4 4
+  '; then
+    fail "Fire Mission FDS 默认链路验收未通过"
   fi
 fi
 
