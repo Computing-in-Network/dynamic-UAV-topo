@@ -6,9 +6,15 @@ source "${ROOT_DIR}/scripts/demo_common.sh"
 BASE_PORT="${1:-8899}"
 INSTANCE_COUNT="${2:-4}"
 TOTAL_CORES="${3:-4}"
-FIRE_SOURCE_MODE="${4:-demo}"
+FIRE_SOURCE_MODE="${4:-fds}"
 FDS_INPUT_PATH="${5:-${ROOT_DIR}/docs/examples/fds_hotspots_sample.csv}"
 FDS_INPUT_FORMAT="${6:-csv}"
+FDS_TIME_MODE="${7:-source_offset}"
+FDS_REPLAY_SPEED="${8:-2.0}"
+FDS_REGION_INPUT_PATH="${9:-${ROOT_DIR}/docs/examples/fds_regions_sample.jsonl}"
+FDS_REGION_INPUT_FORMAT="${10:-jsonl}"
+FDS_INPUT_PROFILE="${11:-normalized}"
+FDS_REGION_INPUT_PROFILE="${12:-normalized}"
 TAG="fire_mission_demo_check"
 
 set +u
@@ -23,7 +29,7 @@ if [[ "${PORT}" == "-1" ]]; then
 fi
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" >/dev/null 2>&1 || true
-if ! "${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" "${FIRE_SOURCE_MODE}" "${FDS_INPUT_PATH}" "${FDS_INPUT_FORMAT}" >/tmp/fire_demo_start.log 2>&1; then
+if ! "${ROOT_DIR}/scripts/fire_mission_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" "${FIRE_SOURCE_MODE}" "${FDS_INPUT_PATH}" "${FDS_INPUT_FORMAT}" "${FDS_TIME_MODE}" "${FDS_REPLAY_SPEED}" "${FDS_REGION_INPUT_PATH}" "${FDS_REGION_INPUT_FORMAT}" "${FDS_INPUT_PROFILE}" "${FDS_REGION_INPUT_PROFILE}" >/tmp/fire_demo_start.log 2>&1; then
   log_error "${TAG}" "E_START_FAIL" "启动 fire mission demo 失败"
   echo "--- start log ---"
   cat /tmp/fire_demo_start.log || true
@@ -110,6 +116,7 @@ if state0 is None:
 
 if FIRE_SOURCE_MODE == "fds":
     fire_shapes = set()
+    region_shapes = set()
     fire_deadline = time.time() + 12.0
     ts_seen = set()
     while time.time() < fire_deadline:
@@ -133,13 +140,32 @@ if FIRE_SOURCE_MODE == "fds":
                     )
                 )
                 fire_shapes.add(sig)
-                if len(fire_shapes) >= 2 and len(ts_seen) >= 2:
-                    break
+            regions = s.get("fire_regions", [])
+            if regions:
+                region_sig = tuple(
+                    sorted(
+                        (
+                            str(r.get("id", "")),
+                            round(float(r.get("radius_m", 0.0)), 1),
+                            int(r.get("member_count", 0)),
+                            str(r.get("source", "")),
+                        )
+                        for r in regions
+                    )
+                )
+                region_shapes.add(region_sig)
+            if len(fire_shapes) >= 2 and len(ts_seen) >= 2 and len(region_shapes) >= 1:
+                break
         except Exception:
             pass
         time.sleep(0.4)
     if len(fire_shapes) < 2 or len(ts_seen) < 2:
         print("[fire_mission_demo_check][ERROR][E_FDS_STATIC] FDS 模式火情未出现时序变化")
+        probe.destroy_node()
+        rclpy.shutdown()
+        raise SystemExit(1)
+    if len(region_shapes) < 1:
+        print("[fire_mission_demo_check][ERROR][E_FDS_NO_REGION] FDS 模式未观察到 fire_regions 数据")
         probe.destroy_node()
         rclpy.shutdown()
         raise SystemExit(1)

@@ -167,10 +167,10 @@ python3 scripts/fire_adapter_fds.py --ros-args \
   -p playback_mode:=timeline
 ```
 
-在 Fire Mission Demo 中启用 FDS 输入：
+在 Fire Mission Demo 中，当前默认主路径就是 FDS 输入：
 
 ```bash
-./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv
+./scripts/fire_mission_demo_start.sh 4 4 8899
 ```
 
 可选补充参数：

@@ -192,9 +192,9 @@
 
 更多说明见：`docs/ricci-cuda-poc.md`
 
-## Fire Mission MVP（FDS 接入预演）
+## Fire Mission MVP（FDS 主路径）
 
-说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
+说明：P0 当前默认以 `fire_adapter_fds.py` 作为 Fire Mission 主路径；`fire_adapter_demo.py` 保留为显式回退模式，仅用于离线兜底或快速排障。
 
 当前已提供首版 FDS 文件适配器：`scripts/fire_adapter_fds.py`（详见 `docs/fds-fire-adapter.md`）。
 P0 当前已明确两类输入契约：
@@ -211,16 +211,28 @@ P0 当前已明确两类输入契约：
 - 任务图层（`mission_targets`）：显示 UAV 到任务目标的虚线。
 - 右上角状态摘要：`fire`、`max_fire`、`mission`、`basemap`。
 
-一键启动：
+一键启动（默认走 FDS）：
 
 ```bash
 ./scripts/fire_mission_demo_start.sh 4 4 8899
 ```
 
-使用 FDS 文件源启动：
+显式指定 FDS 文件源启动：
 
 ```bash
 ./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv
+```
+
+使用更接近真实导出表的 FDS 输入契约：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_cells_export_sample.csv csv source_offset 1.0 docs/examples/fds_regions_sample.jsonl jsonl fds_csv normalized
+```
+
+使用旧 `demo` 模式回退：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 demo
 ```
 
 一键停止：
@@ -229,7 +241,7 @@ P0 当前已明确两类输入契约：
 ./scripts/fire_mission_demo_stop.sh 8899
 ```
 
-一键验收：
+一键验收（默认走 FDS）：
 
 ```bash
 ./scripts/fire_mission_demo_check.sh 8899 4 4
@@ -239,6 +251,7 @@ P0 当前已明确两类输入契约：
 
 - 输出 `mission_msgs=... target_count=...`
 - 输出 `tracked_uav=... moved_m=...` 且位移明显大于 0
+- FDS 模式下能观察到 `fire_regions`
 - 输出 `[fire_mission_demo_check] PASS: 火场任务链路有效`
 
 可视化地址与底图模式：
