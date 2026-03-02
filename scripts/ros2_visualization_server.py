@@ -164,8 +164,14 @@ class SwarmStateCache:
             self._payload["mission_targets"] = targets
 
     def get(self) -> dict:
-        with self._lock:
-            return dict(self._payload)
+        # Avoid hanging the HTTP API forever if the publisher thread holds the
+        # cache lock unexpectedly long; a best-effort snapshot is sufficient.
+        if self._lock.acquire(timeout=0.05):
+            try:
+                return dict(self._payload)
+            finally:
+                self._lock.release()
+        return dict(self._payload)
 
 class SwarmSubscriber(Node):
     def __init__(self, cache: SwarmStateCache) -> None:
