@@ -197,6 +197,12 @@
 说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
 
 当前已提供首版 FDS 文件适配器：`scripts/fire_adapter_fds.py`（详见 `docs/fds-fire-adapter.md`）。
+P0 当前已明确两类输入契约：
+
+- `input_profile=normalized`：仓库内部规范化样例格式
+- `input_profile=fds_csv`：更接近真实 FDS 导出表的热点单元格式
+
+对应近真实样例见：`docs/examples/fds_cells_export_sample.csv`
 
 已实现可视化叠加：
 

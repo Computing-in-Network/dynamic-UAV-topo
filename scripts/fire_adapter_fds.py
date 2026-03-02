@@ -1,49 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import csv
-import json
 import math
 import os
 from bisect import bisect_right
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import rclpy
 from rclpy.node import Node
 from swarm_interfaces.msg import FireRegion, FireRegionState, FireState, Hotspot
-
-
-@dataclass
-class RawHotspot:
-    source_time_s: float
-    hotspot_id: str
-    x_m: float
-    y_m: float
-    z_m: float
-    intensity: float
-    spread_mps: float
-
-
-@dataclass
-class RawRegion:
-    source_time_s: float
-    region_id: str
-    points_xyz: List[Tuple[float, float, float]]
-    intensity: float
-    spread_mps: float
-
-
-def _clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
-
-
-def _to_float(raw: object, default: float = 0.0) -> float:
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
+from fire_adapter_fds_core import (
+    RawHotspot,
+    RawRegion,
+    group_hotspot_rows,
+    group_region_rows,
+    load_hotspot_rows,
+    load_region_rows,
+)
 
 
 class FireAdapterFds(Node):
@@ -53,11 +27,13 @@ class FireAdapterFds(Node):
         self.publish_hz: float = float(self.declare_parameter("publish_hz", 1.0).value)
         self.input_path: str = self.declare_parameter("input_path", "").value
         self.input_format: str = self.declare_parameter("input_format", "csv").value
+        self.input_profile: str = self.declare_parameter("input_profile", "normalized").value
         self.region_output_topic: str = self.declare_parameter(
             "region_output_topic", "/env/fire_region_state"
         ).value
         self.region_input_path: str = self.declare_parameter("region_input_path", "").value
         self.region_input_format: str = self.declare_parameter("region_input_format", "jsonl").value
+        self.region_input_profile: str = self.declare_parameter("region_input_profile", "normalized").value
         self.publish_regions: bool = bool(self.declare_parameter("publish_regions", True).value)
         self.time_mode: str = self.declare_parameter("time_mode", "source_offset").value
         self.origin_lat: float = float(self.declare_parameter("origin_lat", 39.9042).value)
@@ -107,8 +83,9 @@ class FireAdapterFds(Node):
         self.timer = self.create_timer(period, self._tick)
         self.get_logger().info(
             f"fire_adapter_fds started output={self.output_topic} input={self.input_path or '<empty>'} "
-            f"format={self.input_format} region_output={self.region_output_topic} "
-            f"region_input={self.region_input_path or '<empty>'} region_format={self.region_input_format} "
+            f"format={self.input_format} profile={self.input_profile} "
+            f"region_output={self.region_output_topic} region_input={self.region_input_path or '<empty>'} "
+            f"region_format={self.region_input_format} region_profile={self.region_input_profile} "
             f"time_mode={self.time_mode} playback={self.playback_mode} "
             f"loop={self.loop_timeline} replay_speed={self.replay_speed:.2f} hz={self.publish_hz:.2f}"
         )
@@ -154,10 +131,13 @@ class FireAdapterFds(Node):
             return
 
         try:
-            if self.input_format == "jsonl":
-                rows = self._parse_jsonl(p)
-            else:
-                rows = self._parse_csv(p)
+            rows = load_hotspot_rows(
+                p,
+                input_format=self.input_format,
+                has_header=self.has_header,
+                source_time_scale=self.source_time_scale,
+                input_profile=self.input_profile,
+            )
         except Exception as ex:
             self.get_logger().error("parse input failed: %s", str(ex))
             return
@@ -166,12 +146,7 @@ class FireAdapterFds(Node):
             self.get_logger().warn("no valid hotspot rows from %s", str(p), throttle_duration_sec=5.0)
             return
 
-        grouped: Dict[float, List[RawHotspot]] = {}
-        for row in rows:
-            bucket = grouped.setdefault(row.source_time_s, [])
-            bucket.append(row)
-        self.timeline_ts = sorted(grouped.keys())
-        self.timeline_rows = [grouped[ts] for ts in self.timeline_ts]
+        self.timeline_ts, self.timeline_rows = group_hotspot_rows(rows)
         self._rebuild_playback_timeline()
         self.timeline_base_ros_s = self._now_s()
         self.last_published_idx = -1
@@ -200,10 +175,13 @@ class FireAdapterFds(Node):
             return
 
         try:
-            if self.region_input_format == "csv":
-                rows = self._parse_region_csv(p)
-            else:
-                rows = self._parse_region_jsonl(p)
+            rows = load_region_rows(
+                p,
+                input_format=self.region_input_format,
+                has_header=self.has_header,
+                source_time_scale=self.source_time_scale,
+                input_profile=self.region_input_profile,
+            )
         except Exception as ex:
             self.get_logger().error("parse region input failed: %s", str(ex))
             return
@@ -212,11 +190,7 @@ class FireAdapterFds(Node):
             self.get_logger().warn("no valid region rows from %s", str(p), throttle_duration_sec=5.0)
             return
 
-        grouped: Dict[float, List[RawRegion]] = {}
-        for row in rows:
-            grouped.setdefault(row.source_time_s, []).append(row)
-        self.region_timeline_ts = sorted(grouped.keys())
-        self.region_timeline_rows = [grouped[ts] for ts in self.region_timeline_ts]
+        self.region_timeline_ts, self.region_timeline_rows = group_region_rows(rows)
         self.last_region_file_state = file_state
         self._rebuild_playback_timeline()
         self.timeline_base_ros_s = self._now_s()
@@ -289,152 +263,6 @@ class FireAdapterFds(Node):
         idx = bisect_right(self.region_timeline_ts, frame_ts) - 1
         idx = max(0, min(idx, len(self.region_timeline_ts) - 1))
         return self.region_timeline_rows[idx]
-
-    def _parse_csv(self, p: Path) -> List[RawHotspot]:
-        rows: List[RawHotspot] = []
-        with p.open("r", encoding="utf-8") as f:
-            if self.has_header:
-                reader = csv.DictReader(f)
-                for idx, raw in enumerate(reader):
-                    if raw is None:
-                        continue
-                    row = self._to_row(raw, idx + 1)
-                    if row is not None:
-                        rows.append(row)
-            else:
-                reader = csv.reader(f)
-                for idx, cols in enumerate(reader):
-                    if not cols:
-                        continue
-                    raw = {
-                        "time_s": cols[0] if len(cols) > 0 else 0.0,
-                        "id": cols[1] if len(cols) > 1 else f"hotspot_{idx}",
-                        "x_m": cols[2] if len(cols) > 2 else 0.0,
-                        "y_m": cols[3] if len(cols) > 3 else 0.0,
-                        "z_m": cols[4] if len(cols) > 4 else 0.0,
-                        "intensity": cols[5] if len(cols) > 5 else 0.5,
-                        "spread_mps": cols[6] if len(cols) > 6 else 0.0,
-                    }
-                    row = self._to_row(raw, idx + 1)
-                    if row is not None:
-                        rows.append(row)
-        return rows
-
-    def _parse_jsonl(self, p: Path) -> List[RawHotspot]:
-        rows: List[RawHotspot] = []
-        with p.open("r", encoding="utf-8") as f:
-            for idx, line in enumerate(f):
-                line = line.strip()
-                if not line:
-                    continue
-                raw = json.loads(line)
-                if not isinstance(raw, dict):
-                    continue
-                row = self._to_row(raw, idx + 1)
-                if row is not None:
-                    rows.append(row)
-        return rows
-
-    def _parse_region_jsonl(self, p: Path) -> List[RawRegion]:
-        rows: List[RawRegion] = []
-        with p.open("r", encoding="utf-8") as f:
-            for idx, line in enumerate(f):
-                line = line.strip()
-                if not line:
-                    continue
-                raw = json.loads(line)
-                if not isinstance(raw, dict):
-                    continue
-                row = self._to_region_row(raw, idx + 1)
-                if row is not None:
-                    rows.append(row)
-        return rows
-
-    def _parse_region_csv(self, p: Path) -> List[RawRegion]:
-        rows: List[RawRegion] = []
-        with p.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f) if self.has_header else csv.reader(f)
-            if self.has_header:
-                for idx, raw in enumerate(reader):
-                    if raw is None:
-                        continue
-                    row = self._to_region_row(raw, idx + 1)
-                    if row is not None:
-                        rows.append(row)
-            else:
-                for idx, cols in enumerate(reader):
-                    if not cols:
-                        continue
-                    raw = {
-                        "time_s": cols[0] if len(cols) > 0 else 0.0,
-                        "id": cols[1] if len(cols) > 1 else f"region_{idx}",
-                        "vertices": cols[2] if len(cols) > 2 else "",
-                        "intensity": cols[3] if len(cols) > 3 else 0.5,
-                        "spread_mps": cols[4] if len(cols) > 4 else 0.0,
-                    }
-                    row = self._to_region_row(raw, idx + 1)
-                    if row is not None:
-                        rows.append(row)
-        return rows
-
-    def _to_row(self, raw: Dict[str, object], row_no: int) -> Optional[RawHotspot]:
-        source_time_s = _to_float(raw.get("time_s", raw.get("time", 0.0))) * self.source_time_scale
-        hotspot_id = str(raw.get("id", raw.get("hotspot_id", f"hotspot_{row_no}")))
-        x_m = _to_float(raw.get("x_m", raw.get("x", 0.0)))
-        y_m = _to_float(raw.get("y_m", raw.get("y", 0.0)))
-        z_m = _to_float(raw.get("z_m", raw.get("z", 0.0)))
-        intensity = _clamp(_to_float(raw.get("intensity", 0.5)), 0.0, 1.0)
-        spread_mps = max(0.0, _to_float(raw.get("spread_mps", raw.get("spread", 0.0))))
-        return RawHotspot(
-            source_time_s=source_time_s,
-            hotspot_id=hotspot_id,
-            x_m=x_m,
-            y_m=y_m,
-            z_m=z_m,
-            intensity=intensity,
-            spread_mps=spread_mps,
-        )
-
-    def _to_region_row(self, raw: Dict[str, object], row_no: int) -> Optional[RawRegion]:
-        source_time_s = _to_float(raw.get("time_s", raw.get("time", 0.0))) * self.source_time_scale
-        region_id = str(raw.get("id", raw.get("region_id", f"region_{row_no}")))
-        intensity = _clamp(_to_float(raw.get("intensity", 0.5)), 0.0, 1.0)
-        spread_mps = max(0.0, _to_float(raw.get("spread_mps", raw.get("spread", 0.0))))
-
-        points_xyz: List[Tuple[float, float, float]] = []
-        vertices = raw.get("vertices", raw.get("boundary", []))
-        if isinstance(vertices, str):
-            for chunk in vertices.split(";"):
-                chunk = chunk.strip()
-                if not chunk:
-                    continue
-                nums = [x.strip() for x in chunk.split(":")]
-                if len(nums) < 2:
-                    continue
-                x_m = _to_float(nums[0], 0.0)
-                y_m = _to_float(nums[1], 0.0)
-                z_m = _to_float(nums[2], 0.0) if len(nums) >= 3 else 0.0
-                points_xyz.append((x_m, y_m, z_m))
-        elif isinstance(vertices, list):
-            for pt in vertices:
-                if not isinstance(pt, list) and not isinstance(pt, tuple):
-                    continue
-                if len(pt) < 2:
-                    continue
-                x_m = _to_float(pt[0], 0.0)
-                y_m = _to_float(pt[1], 0.0)
-                z_m = _to_float(pt[2], 0.0) if len(pt) >= 3 else 0.0
-                points_xyz.append((x_m, y_m, z_m))
-        if len(points_xyz) < 3:
-            return None
-
-        return RawRegion(
-            source_time_s=source_time_s,
-            region_id=region_id,
-            points_xyz=points_xyz,
-            intensity=intensity,
-            spread_mps=spread_mps,
-        )
 
     def _xy_to_wgs84(self, x_m: float, y_m: float, z_m: float) -> Tuple[float, float, float]:
         x_loc = y_m if self.xy_swap else x_m

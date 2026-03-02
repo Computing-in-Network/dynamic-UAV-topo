@@ -17,6 +17,8 @@ FDS_TIME_MODE="${7:-source_offset}"
 FDS_REPLAY_SPEED="${8:-2.0}"
 FDS_REGION_INPUT_PATH="${9:-${ROOT_DIR}/docs/examples/fds_regions_sample.jsonl}"
 FDS_REGION_INPUT_FORMAT="${10:-jsonl}"
+FDS_INPUT_PROFILE="${11:-normalized}"
+FDS_REGION_INPUT_PROFILE="${12:-normalized}"
 DRY_RUN="${DEMO_DRY_RUN:-0}"
 
 if [[ "${FIRE_SOURCE_MODE}" != "demo" && "${FIRE_SOURCE_MODE}" != "fds" ]]; then
@@ -100,6 +102,7 @@ elif [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
       -p region_output_topic:=/env/fire_region_state
       -p region_input_path:="${FDS_REGION_INPUT_PATH}"
       -p region_input_format:="${FDS_REGION_INPUT_FORMAT}"
+      -p region_input_profile:="${FDS_REGION_INPUT_PROFILE}"
     )
   fi
   python3 "${ROOT_DIR}/scripts/fire_adapter_fds.py" \
@@ -108,6 +111,7 @@ elif [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
     -p publish_hz:=2.0 \
     -p input_path:="${FDS_INPUT_PATH}" \
     -p input_format:="${FDS_INPUT_FORMAT}" \
+    -p input_profile:="${FDS_INPUT_PROFILE}" \
     -p time_mode:="${FDS_TIME_MODE}" \
     -p playback_mode:=timeline \
     -p replay_speed:="${FDS_REPLAY_SPEED}" \
@@ -130,9 +134,9 @@ echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PID
 echo "${VIS_PORT}" > "${PORT_FILE}"
 log_info "${TAG}" "manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID} fire_source=${FIRE_SOURCE_MODE}"
 if [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
-  log_info "${TAG}" "fds_input=${FDS_INPUT_PATH} format=${FDS_INPUT_FORMAT} time_mode=${FDS_TIME_MODE} replay_speed=${FDS_REPLAY_SPEED}"
+  log_info "${TAG}" "fds_input=${FDS_INPUT_PATH} format=${FDS_INPUT_FORMAT} profile=${FDS_INPUT_PROFILE} time_mode=${FDS_TIME_MODE} replay_speed=${FDS_REPLAY_SPEED}"
   if [[ -f "${FDS_REGION_INPUT_PATH}" ]]; then
-    log_info "${TAG}" "fds_region_input=${FDS_REGION_INPUT_PATH} region_format=${FDS_REGION_INPUT_FORMAT}"
+    log_info "${TAG}" "fds_region_input=${FDS_REGION_INPUT_PATH} region_format=${FDS_REGION_INPUT_FORMAT} region_profile=${FDS_REGION_INPUT_PROFILE}"
   else
     log_warn "${TAG}" "FDS region 输入不存在，回退热点估算火区: ${FDS_REGION_INPUT_PATH}"
   fi
