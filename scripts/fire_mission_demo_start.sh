@@ -4,39 +4,69 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PIDS_FILE="${ROOT_DIR}/.fire_demo_pids"
 PORT_FILE="${ROOT_DIR}/.fire_demo_port"
+TAG="fire_mission_demo_start"
+source "${ROOT_DIR}/scripts/demo_common.sh"
 
 INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-4}"
-VIS_PORT="${3:-8899}"
+BASE_PORT="${3:-8899}"
+FIRE_SOURCE_MODE="${4:-fds}"
+FDS_INPUT_PATH="${5:-${ROOT_DIR}/docs/examples/fds_hotspots_sample.csv}"
+FDS_INPUT_FORMAT="${6:-csv}"
+FDS_TIME_MODE="${7:-source_offset}"
+FDS_REPLAY_SPEED="${8:-2.0}"
+FDS_REGION_INPUT_PATH="${9:-${ROOT_DIR}/docs/examples/fds_regions_sample.jsonl}"
+FDS_REGION_INPUT_FORMAT="${10:-jsonl}"
+FDS_INPUT_PROFILE="${11:-normalized}"
+FDS_REGION_INPUT_PROFILE="${12:-normalized}"
+DRY_RUN="${DEMO_DRY_RUN:-0}"
+
+if [[ "${FIRE_SOURCE_MODE}" != "demo" && "${FIRE_SOURCE_MODE}" != "fds" ]]; then
+  log_error "${TAG}" "E_USAGE" "不支持的 FIRE_SOURCE_MODE=${FIRE_SOURCE_MODE}，可选: demo|fds"
+  exit 2
+fi
+
+if [[ "${FIRE_SOURCE_MODE}" == "fds" && ! -f "${FDS_INPUT_PATH}" ]]; then
+  log_error "${TAG}" "E_INPUT" "FDS 输入文件不存在: ${FDS_INPUT_PATH}"
+  exit 3
+fi
+
+VIS_PORT="$(pick_available_port "${BASE_PORT}" 50)"
+if [[ "${VIS_PORT}" == "-1" ]]; then
+  log_error "${TAG}" "E_PORT_FULL" "从端口 ${BASE_PORT} 起未找到可用端口"
+  exit 4
+fi
 
 "${ROOT_DIR}/scripts/fire_mission_demo_stop.sh" "${VIS_PORT}" >/dev/null 2>&1 || true
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
 
-if ! python3 - <<PY
-import socket,sys,time
-port=${VIS_PORT}
-deadline=time.time()+4.0
-while time.time()<deadline:
-    s=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.bind(("127.0.0.1", port))
-        sys.exit(0)
-    except OSError:
-        time.sleep(0.2)
-    finally:
-        s.close()
-sys.exit(1)
-PY
-then
-  local_next_port="$((VIS_PORT + 1))"
-  echo "[fire_mission_demo_start] 端口 ${VIS_PORT} 已被占用，请换一个端口重试（例如 ${local_next_port}）"
-  exit 1
+if [[ "${DRY_RUN}" == "1" ]]; then
+  log_info "${TAG}" "DRY_RUN=1，跳过 ROS 进程启动"
+  log_info "${TAG}" "selected_port=${VIS_PORT} fire_source=${FIRE_SOURCE_MODE}"
+  exit 0
 fi
 
 set +u
-source /opt/ros/humble/setup.bash
-source "${ROOT_DIR}/ros2_ws/install/setup.bash"
+if [[ ! -f /opt/ros/humble/setup.bash ]]; then
+  set -u
+  log_error "${TAG}" "E_ROS_ENV" "缺少 /opt/ros/humble/setup.bash"
+  exit 5
+fi
+source /opt/ros/humble/setup.bash || {
+  set -u
+  log_error "${TAG}" "E_ROS_SOURCE" "加载 ROS 环境失败"
+  exit 6
+}
+source "${ROOT_DIR}/ros2_ws/install/setup.bash" || {
+  set -u
+  log_error "${TAG}" "E_WS_SOURCE" "加载工作区环境失败，请先构建 ros2_ws"
+  exit 7
+}
 set -u
+if ! command -v ros2 >/dev/null 2>&1; then
+  log_error "${TAG}" "E_ROS2_CMD" "未找到 ros2 命令"
+  exit 8
+fi
 
 mkdir -p /tmp/roslog
 export ROS_LOG_DIR=/tmp/roslog
@@ -59,10 +89,37 @@ ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
   > /tmp/swarm_topology_fire_demo.log 2>&1 &
 TOPO_PID=$!
 
-python3 "${ROOT_DIR}/scripts/fire_adapter_demo.py" \
-  --ros-args -p output_topic:=/env/fire_state -p publish_hz:=1.0 \
-  > /tmp/fire_adapter_demo.log 2>&1 &
-FIRE_PID=$!
+if [[ "${FIRE_SOURCE_MODE}" == "demo" ]]; then
+  python3 "${ROOT_DIR}/scripts/fire_adapter_demo.py" \
+    --ros-args -p output_topic:=/env/fire_state -p publish_hz:=1.0 \
+    > /tmp/fire_adapter_demo.log 2>&1 &
+  FIRE_PID=$!
+elif [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
+  REGION_ARGS=()
+  if [[ -f "${FDS_REGION_INPUT_PATH}" ]]; then
+    REGION_ARGS=(
+      -p publish_regions:=true
+      -p region_output_topic:=/env/fire_region_state
+      -p region_input_path:="${FDS_REGION_INPUT_PATH}"
+      -p region_input_format:="${FDS_REGION_INPUT_FORMAT}"
+      -p region_input_profile:="${FDS_REGION_INPUT_PROFILE}"
+    )
+  fi
+  python3 "${ROOT_DIR}/scripts/fire_adapter_fds.py" \
+    --ros-args \
+    -p output_topic:=/env/fire_state \
+    -p publish_hz:=2.0 \
+    -p input_path:="${FDS_INPUT_PATH}" \
+    -p input_format:="${FDS_INPUT_FORMAT}" \
+    -p input_profile:="${FDS_INPUT_PROFILE}" \
+    -p time_mode:="${FDS_TIME_MODE}" \
+    -p playback_mode:=timeline \
+    -p replay_speed:="${FDS_REPLAY_SPEED}" \
+    -p loop_timeline:=true \
+    "${REGION_ARGS[@]}" \
+    > /tmp/fire_adapter_fds.log 2>&1 &
+  FIRE_PID=$!
+fi
 
 python3 "${ROOT_DIR}/scripts/mission_planner.py" \
   --ros-args -p fire_topic:=/env/fire_state -p swarm_topic:=/swarm/state -p plan_topic:=/swarm/mission_targets \
@@ -75,5 +132,16 @@ VIS_PID=$!
 
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
-echo "[fire_mission_demo_start] manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID}"
-echo "[fire_mission_demo_start] 可视化: http://127.0.0.1:${VIS_PORT}/cesium"
+log_info "${TAG}" "manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID} fire_source=${FIRE_SOURCE_MODE}"
+if [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
+  log_info "${TAG}" "fds_input=${FDS_INPUT_PATH} format=${FDS_INPUT_FORMAT} profile=${FDS_INPUT_PROFILE} time_mode=${FDS_TIME_MODE} replay_speed=${FDS_REPLAY_SPEED}"
+  if [[ -f "${FDS_REGION_INPUT_PATH}" ]]; then
+    log_info "${TAG}" "fds_region_input=${FDS_REGION_INPUT_PATH} region_format=${FDS_REGION_INPUT_FORMAT} region_profile=${FDS_REGION_INPUT_PROFILE}"
+  else
+    log_warn "${TAG}" "FDS region 输入不存在，回退热点估算火区: ${FDS_REGION_INPUT_PATH}"
+  fi
+fi
+if [[ "${VIS_PORT}" != "${BASE_PORT}" ]]; then
+  log_warn "${TAG}" "端口 ${BASE_PORT} 被占用，已自动回退到 ${VIS_PORT}"
+fi
+log_info "${TAG}" "可视化: http://127.0.0.1:${VIS_PORT}/cesium"

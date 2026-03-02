@@ -21,11 +21,20 @@
 - 新增 100Hz 压力测试脚本：`scripts/stress_100hz.sh`（输出 `observed_hz` 与 `context_switch_hz`）
 - 新增 Fire Mission MVP：
   - `scripts/fire_adapter_demo.py`（模拟 FDS 热点流）
+  - `scripts/fire_adapter_fds.py`（FDS 文件适配器，当前默认主路径）
+  - `scripts/fire_adapter_fds_core.py`（FDS 输入解析核心模块）
   - `scripts/mission_planner.py`（热点到 UAV 的贪心任务分配）
   - `swarm_uav_manager_node` 支持 `mission_follow_enabled` 按目标点推进
   - 一键脚本：`scripts/fire_mission_demo_start.sh` / `scripts/fire_mission_demo_check.sh`
+  - 默认链路已切换为 FDS，`demo` 模式降级为显式回退
+  - `fire_mission_demo_check.sh` 已在 FDS 模式下校验 `fire_regions`
+- 新增 GPU/高阶拓扑 PoC：
+  - `scripts/ricci_cuda_poc.py`（无向图边权共邻居评分 CPU/CUDA 对比脚本）
 
 ## 下一步（按 Spec 推进）
 
 - 详细计划见：`docs/next-plan.md`
-- 当前优先级：FDS 真实数据接入、火区扩展渲染、任务规划稳态优化。
+- 当前优先级：
+  - 完成 P0 收尾验收（测试与文档固化）
+  - 将火区显示从圆形近似升级为真实边界多边形
+  - 任务规划稳态优化

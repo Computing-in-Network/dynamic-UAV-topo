@@ -43,7 +43,7 @@
       }
       .side-inner {
         display: grid;
-        grid-template-rows: auto 200px 1fr;
+        grid-template-rows: auto auto auto 200px 1fr;
         height: 100%;
       }
       .meta {
@@ -59,6 +59,30 @@
       }
       .table-wrap {
         overflow: auto;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .controls label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .slider-wrap {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex: 1;
+        min-width: 180px;
+      }
+      .slider-wrap input[type='range'] {
+        width: 100%;
       }
       table {
         width: 100%;
@@ -83,7 +107,7 @@
       }
       @media (max-width: 1024px) {
         .layout { grid-template-columns: 1fr; }
-        .side-inner { grid-template-rows: auto 160px 1fr; }
+        .side-inner { grid-template-rows: auto auto auto 140px 1fr; }
       }
     </style>
   </head>
@@ -93,11 +117,28 @@
       <div class="side-card">
         <div class="side-inner">
           <div class="meta" id="meta">初始化中...</div>
+          <div class="controls">
+            <label><input id="show_links" type="checkbox" checked />链路</label>
+            <label><input id="show_fire" type="checkbox" checked />火点/火区</label>
+            <label><input id="show_mission" type="checkbox" checked />任务</label>
+            <label><input id="replay_auto" type="checkbox" checked />回放自动</label>
+            <div class="slider-wrap">
+              <span>回放:</span>
+              <input id="history_slider" type="range" min="0" max="0" value="0" disabled />
+              <span id="history_label">-</span>
+            </div>
+          </div>
           <div id="deck"></div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>ID</th><th>Lat</th><th>Lon</th><th>Alt</th><th>Status</th></tr></thead>
               <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>UAV</th><th>优先级</th><th>任务解释</th></tr></thead>
+              <tbody id="mission_rows"></tbody>
             </table>
           </div>
         </div>
@@ -107,12 +148,24 @@
     <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
     <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
     <script>
-      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], mission_targets: [] };
+      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], fire_regions: [], mission_targets: [] };
       const rows = document.getElementById('rows');
+      const missionRows = document.getElementById('mission_rows');
       const meta = document.getElementById('meta');
+      const showLinks = document.getElementById('show_links');
+      const showFire = document.getElementById('show_fire');
+      const showMission = document.getElementById('show_mission');
+      const replayAuto = document.getElementById('replay_auto');
+      const historySlider = document.getElementById('history_slider');
+      const historyLabel = document.getElementById('history_label');
       let basemapMode = 'OSM';
       let osmErrorCount = 0;
       const forceBasemap = new URLSearchParams(window.location.search).get('basemap');
+      const fireRegionMode = new URLSearchParams(window.location.search).get('fire_region') !== 'off';
+      const stateHistory = [];
+      const maxHistory = 120;
+      let replayIndex = -1;
+      let isReplayAuto = true;
 
       Cesium.Ion.defaultAccessToken = undefined;
       const osmProvider = new Cesium.OpenStreetMapImageryProvider({
@@ -172,9 +225,100 @@
         destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 22000.0)
       });
 
+      function addHistoryFrame(frame) {
+        stateHistory.push(frame);
+        if (stateHistory.length > maxHistory) {
+          stateHistory.shift();
+        }
+        if (isReplayAuto) {
+          replayIndex = stateHistory.length - 1;
+        } else if (replayIndex >= stateHistory.length) {
+          replayIndex = stateHistory.length - 1;
+        }
+        historySlider.max = String(Math.max(0, stateHistory.length - 1));
+        historySlider.disabled = stateHistory.length <= 1;
+        historyLabel.textContent = `${replayIndex + 1}/${stateHistory.length}`;
+      }
+
+      function pickFrameForRender() {
+        if (stateHistory.length === 0) {
+          return null;
+        }
+        if (isReplayAuto) {
+          replayIndex = stateHistory.length - 1;
+          historySlider.value = String(replayIndex);
+          return stateHistory[replayIndex];
+        }
+        const idx = Math.max(0, Math.min(replayIndex, stateHistory.length - 1));
+        return stateHistory[idx];
+      }
+
+      function applyLayerVisibility(frame) {
+        const links = showLinks.checked ? frame.links : [];
+        const mission = showMission.checked ? frame.mission_targets : [];
+        upsertCesiumEntities(frame.uavs);
+        upsertCesiumLinks(frame.uavs, links);
+        upsertFireRegions(showFire.checked ? frame.fire_regions : []);
+        upsertFireHotspots(showFire.checked ? frame.fire_hotspots : []);
+        upsertMissionLines(frame.uavs, mission);
+        updateDeck(frame.uavs, links);
+        updateTable(frame.uavs);
+        updateMissionTable(mission);
+      }
+
+      function renderFrame() {
+        const frame = pickFrameForRender();
+        if (!frame) {
+          return;
+        }
+        state.timestamp = frame.timestamp;
+        state.uavs = frame.uavs || [];
+        state.links = frame.links || [];
+        state.fire_hotspots = frame.fire_hotspots || [];
+        state.fire_regions = frame.fire_regions || [];
+        state.mission_targets = frame.mission_targets || [];
+        const avgW = state.links.length
+          ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
+          : 'n/a';
+        const maxFire = state.fire_hotspots.length
+          ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
+          : 'n/a';
+        const frameTime = new Date(state.timestamp).toISOString();
+
+        meta.innerHTML = `timestamp=${state.timestamp} 时间=${frameTime} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">fire_regions=${state.fire_regions.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">fire_region=${fireRegionMode ? 'on' : 'off'}</span><span class="badge">replay=${isReplayAuto ? 'auto' : replayIndex + 1}/${stateHistory.length}</span>`;
+        applyLayerVisibility(state);
+      }
+
+      function refreshReplayView() {
+        historyLabel.textContent = stateHistory.length ? `${(isReplayAuto ? stateHistory.length : replayIndex + 1)}/${stateHistory.length}` : '-';
+        if (isReplayAuto) {
+          replayIndex = stateHistory.length - 1;
+          historySlider.value = String(Math.max(0, replayIndex));
+        }
+        renderFrame();
+      }
+
+      replayAuto.addEventListener('change', () => {
+        isReplayAuto = replayAuto.checked;
+        refreshReplayView();
+      });
+      showLinks.addEventListener('change', refreshReplayView);
+      showFire.addEventListener('change', refreshReplayView);
+      showMission.addEventListener('change', refreshReplayView);
+      historySlider.addEventListener('input', (e) => {
+        if (!stateHistory.length) {
+          return;
+        }
+        isReplayAuto = false;
+        replayAuto.checked = false;
+        replayIndex = parseInt(e.target.value, 10);
+        refreshReplayView();
+      });
+
       const entityMap = new Map();
       const polylineMap = new Map();
       const hotspotMap = new Map();
+      const fireRegionMap = new Map();
       const missionLineMap = new Map();
 
       const deckgl = new deck.Deck({
@@ -352,6 +496,74 @@
         }
       }
 
+      function fireRegionColor(intensity) {
+        if (intensity >= 0.85) return Cesium.Color.fromBytes(185, 28, 28, 60);
+        if (intensity >= 0.6) return Cesium.Color.fromBytes(217, 119, 6, 56);
+        return Cesium.Color.fromBytes(202, 138, 4, 52);
+      }
+
+      function upsertFireRegions(regions) {
+        if (!fireRegionMode) {
+          for (const [k, e] of fireRegionMap.entries()) {
+            viewer.entities.remove(e);
+            fireRegionMap.delete(k);
+          }
+          return;
+        }
+
+        const live = new Set();
+        for (const r of regions || []) {
+          const rid = r.id || 'region';
+          live.add(rid);
+          const center = r.center || [0, 0, 0];
+          const lat = center[0];
+          const lon = center[1];
+          const alt = center[2] || 0;
+          const radius = Math.max(80.0, Number(r.radius_m || 120.0));
+          const color = fireRegionColor(Number(r.intensity || 0));
+          const label = `REGION ${rid} r=${radius.toFixed(0)}m n=${Number(r.member_count || 0)}`;
+          let e = fireRegionMap.get(rid);
+          if (!e) {
+            e = viewer.entities.add({
+              id: `fire_region:${rid}`,
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+              ellipse: {
+                semiMinorAxis: radius,
+                semiMajorAxis: radius,
+                height: 0,
+                material: color,
+                outline: true,
+                outlineColor: Cesium.Color.fromBytes(220, 38, 38, 120),
+                outlineWidth: 1
+              },
+              label: {
+                text: label,
+                font: '12px JetBrains Mono',
+                fillColor: Cesium.Color.fromBytes(252, 165, 165, 230),
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                outlineColor: Cesium.Color.BLACK,
+                outlineWidth: 2,
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -6)
+              }
+            });
+            fireRegionMap.set(rid, e);
+          } else {
+            e.position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+            e.ellipse.semiMinorAxis = radius;
+            e.ellipse.semiMajorAxis = radius;
+            e.ellipse.material = color;
+            e.label.text = label;
+          }
+        }
+        for (const [id, entity] of fireRegionMap.entries()) {
+          if (!live.has(id)) {
+            viewer.entities.remove(entity);
+            fireRegionMap.delete(id);
+          }
+        }
+      }
+
       function upsertMissionLines(uavs, targets) {
         const uavById = new Map();
         for (const u of uavs) uavById.set(u.id, u.position);
@@ -451,29 +663,34 @@
         }
       }
 
+      function updateMissionTable(targets) {
+        missionRows.innerHTML = '';
+        if (!targets.length) {
+          missionRows.innerHTML = '<tr><td colspan="3">当前无任务</td></tr>';
+          return;
+        }
+        for (const t of targets) {
+          const tr = document.createElement('tr');
+          const reason = t.reason || '未给出';
+          const priority = Number(t.priority || 0).toFixed(3);
+          tr.innerHTML = `<td>${t.uav_id}</td><td>${priority}</td><td>${reason}</td>`;
+          missionRows.appendChild(tr);
+        }
+      }
+
       async function tick() {
         try {
           const res = await fetch('/api/swarm_state', {cache: 'no-store'});
           const next = await res.json();
-          state.timestamp = next.timestamp;
-          state.uavs = next.uavs || [];
-          state.links = next.links || [];
-          state.fire_hotspots = next.fire_hotspots || [];
-          state.mission_targets = next.mission_targets || [];
-          const avgW = state.links.length
-            ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
-            : 'n/a';
-          const maxFire = state.fire_hotspots.length
-            ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
-            : 'n/a';
-
-          meta.innerHTML = `timestamp=${state.timestamp} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span>`;
-          upsertCesiumEntities(state.uavs);
-          upsertCesiumLinks(state.uavs, state.links);
-          upsertFireHotspots(state.fire_hotspots);
-          upsertMissionLines(state.uavs, state.mission_targets);
-          updateDeck(state.uavs, state.links);
-          updateTable(state.uavs);
+          addHistoryFrame({
+            timestamp: next.timestamp || 0,
+            uavs: next.uavs || [],
+            links: next.links || [],
+            fire_hotspots: next.fire_hotspots || [],
+            fire_regions: next.fire_regions || [],
+            mission_targets: next.mission_targets || []
+          });
+          renderFrame();
         } catch (_) {
           meta.textContent = '数据流中断，等待恢复...';
         }

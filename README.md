@@ -71,15 +71,29 @@
 
 打开浏览器：`http://127.0.0.1:8899`
 
+### 语义网络退化演示（非默认）
+
+```bash
+./scripts/semantic_net_demo.sh 4 4 8899 0.2 weight weight 0 5 1
+```
+
+参数说明：
+
+- 默认退化链路：`packet_drop_rate=0.2`
+- 默认 `drop_mode=weight`、`throttle_mode=weight`
+- 默认可复现种子：`seed=1`
+
 说明：
 
 - 默认首页为 Cesium + Deck.gl 版本
 - 旧版轻量页面：`http://127.0.0.1:8899/legacy`
+- 若目标端口被占用，启动脚本会自动回退到附近可用端口并打印实际端口
 
 ### 一键停止
 
 ```bash
 ./scripts/visual_demo_stop.sh
+./scripts/semantic_net_demo_stop.sh
 ```
 
 ### 一键验收（推荐）
@@ -154,20 +168,71 @@
 - `/swarm/state` 实测频率（`observed_hz`）
 - 系统 context switch 频率（`context_switch_hz`）
 
-## Fire Mission MVP（FDS 接入预演）
+## Ricci/CUDA PoC 评估（#10）
 
-说明：当前先用 `fire_adapter_demo.py` 模拟 FDS 输出热点流，后续可替换为真实 FDS 解析器。
+```bash
+./scripts/ricci_cuda_poc.py --nodes 600 --density 0.05 --seed 2026 --repeat 6 --warmup 1
+```
+
+可复现参数：
+
+- `--nodes`: 节点数，默认 `600`
+- `--density`: 无向图边密度（`[0,1]`）
+- `--seed`: 随机数种子
+- `--repeat`: 计时重复次数（去除 `--warmup` 预热）
+- `--warmup`: 预热次数（不计入指标）
+- `--disable-cuda`: 无需 CuPy 时可关闭 CUDA 通道
+
+默认输出为 JSON，包括：
+
+- `backend.cpu`：CPU 平均/中位数/95 分位时延
+- `backend.cuda`：CUDA（若有）平均/中位数/95 分位时延及可用状态
+- `graph`：边数和实际密度
+- `accuracy.max_abs_diff`：CPU 与 CUDA 结果最大绝对差
+
+更多说明见：`docs/ricci-cuda-poc.md`
+
+## Fire Mission MVP（FDS 主路径）
+
+说明：P0 当前默认以 `fire_adapter_fds.py` 作为 Fire Mission 主路径；`fire_adapter_demo.py` 保留为显式回退模式，仅用于离线兜底或快速排障。
+
+当前已提供首版 FDS 文件适配器：`scripts/fire_adapter_fds.py`（详见 `docs/fds-fire-adapter.md`）。
+P0 当前已明确两类输入契约：
+
+- `input_profile=normalized`：仓库内部规范化样例格式
+- `input_profile=fds_csv`：更接近真实 FDS 导出表的热点单元格式
+
+对应近真实样例见：`docs/examples/fds_cells_export_sample.csv`
 
 已实现可视化叠加：
 
 - 火情热点图层（`fire_hotspots`）：地图显示火点标记、地面影响圈、强度颜色。
+- 火区面图层（`fire_regions`）：按热点聚类与扩散速度估算连续火区半径。
 - 任务图层（`mission_targets`）：显示 UAV 到任务目标的虚线。
 - 右上角状态摘要：`fire`、`max_fire`、`mission`、`basemap`。
 
-一键启动：
+一键启动（默认走 FDS）：
 
 ```bash
 ./scripts/fire_mission_demo_start.sh 4 4 8899
+```
+
+显式指定 FDS 文件源启动：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_hotspots_sample.csv csv
+```
+
+使用更接近真实导出表的 FDS 输入契约：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 fds docs/examples/fds_cells_export_sample.csv csv source_offset 1.0 docs/examples/fds_regions_sample.jsonl jsonl fds_csv normalized
+```
+
+使用旧 `demo` 模式回退：
+
+```bash
+./scripts/fire_mission_demo_start.sh 4 4 8899 demo
 ```
 
 一键停止：
@@ -176,7 +241,7 @@
 ./scripts/fire_mission_demo_stop.sh 8899
 ```
 
-一键验收：
+一键验收（默认走 FDS）：
 
 ```bash
 ./scripts/fire_mission_demo_check.sh 8899 4 4
@@ -186,6 +251,7 @@
 
 - 输出 `mission_msgs=... target_count=...`
 - 输出 `tracked_uav=... moved_m=...` 且位移明显大于 0
+- FDS 模式下能观察到 `fire_regions`
 - 输出 `[fire_mission_demo_check] PASS: 火场任务链路有效`
 
 可视化地址与底图模式：
@@ -193,6 +259,22 @@
 - 默认：`http://127.0.0.1:8899/cesium`
 - 强制在线底图：`http://127.0.0.1:8899/cesium?basemap=osm`
 - 强制网格底图：`http://127.0.0.1:8899/cesium?basemap=grid`
+- 关闭火区面图层：`http://127.0.0.1:8899/cesium?fire_region=off`
+
+双视角演示预留脚本（Gazebo 特写 + 前端全景）：
+
+```bash
+./scripts/dual_view_demo_start.sh 4 4 8899 mock
+./scripts/dual_view_demo_stop.sh
+```
+
+双视角同步验收：
+
+```bash
+./scripts/dual_view_demo_check.sh 8899 2 2 mock 30.0 2500
+```
+
+布局建议与排障说明见：`docs/dual-view-demo.md`
 
 ## 备注
 
@@ -202,6 +284,36 @@
 
 - 详细规范见：`docs/git-flow.md`
 - Issue / Commit / PR 统一使用中文，并写清背景、改动、验证。
+
+## 持续集成（CI）
+
+### 触发
+
+`develop` 分支的 push 与 PR 会自动触发 `Python Smoke CI`。
+
+### 内容
+
+- `python3 -m py_compile scripts/*.py tests/*.py`
+- 所有 `tests/test_*.py` 逐个执行
+- `scripts/ricci_cuda_poc.py --disable-cuda --nodes 12 --density 0.2 --repeat 2`
+
+### 本地发布前检查
+
+```bash
+./scripts/release_smoke.sh
+```
+
+用于离线快速复核（无需 ROS/FDS/PX4/CUDA），结果中返回 `PASS: release smoke` 说明通过。
+
+若本机具备 ROS2 与已构建的工作区，`release_smoke.sh` 还会继续执行 Fire Mission 默认 FDS 链路验收（即调用 `fire_mission_demo_check.sh`）。
+
+可选参数：
+
+```bash
+./scripts/release_smoke.sh --ros      # 强制执行 ROS2 构建 smoke
+./scripts/release_smoke.sh --no-ros   # 强制跳过 ROS2 构建 smoke（默认）
+./scripts/release_smoke.sh --help
+```
 
 建议本地启用中文 commit 模板：
 

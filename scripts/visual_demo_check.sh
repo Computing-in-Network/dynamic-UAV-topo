@@ -2,30 +2,25 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/demo_common.sh"
 BASE_PORT="${1:-8899}"
 INSTANCE_COUNT="${2:-2}"
 TOTAL_CORES="${3:-2}"
+TAG="visual_demo_check"
 
-PORT="$(python3 - <<PY
-import socket
-base = int("${BASE_PORT}")
-for p in range(base, base + 50):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.bind(("127.0.0.1", p))
-        print(p)
-        break
-    except OSError:
-        pass
-    finally:
-        s.close()
-else:
-    print(base)
-PY
-)"
+PORT="$(pick_available_port "${BASE_PORT}" 50)"
+if [[ "${PORT}" == "-1" ]]; then
+  log_error "${TAG}" "E_PORT_FULL" "从端口 ${BASE_PORT} 起未找到可用端口"
+  exit 4
+fi
 
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
-"${ROOT_DIR}/scripts/visual_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" >/tmp/visual_demo_check_start.log 2>&1
+if ! "${ROOT_DIR}/scripts/visual_demo_start.sh" "${INSTANCE_COUNT}" "${TOTAL_CORES}" "${PORT}" >/tmp/visual_demo_check_start.log 2>&1; then
+  log_error "${TAG}" "E_START_FAIL" "启动 visual demo 失败"
+  echo "--- start log ---"
+  cat /tmp/visual_demo_check_start.log || true
+  exit 1
+fi
 
 cleanup() {
   "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
@@ -65,13 +60,15 @@ PY
 done
 
 if [[ "${ok}" -eq 1 ]]; then
-  echo "[visual_demo_check] PASS: 可视化 API 已返回 UAV 数据 (port=${PORT})"
+  log_info "${TAG}" "PASS: 可视化 API 已返回 UAV 数据 (port=${PORT})"
 else
-  echo "[visual_demo_check] FAIL: 可视化 API 未在超时内返回有效 UAV 数据"
+  log_error "${TAG}" "E_CHECK_TIMEOUT" "可视化 API 未在超时内返回有效 UAV 数据"
   echo "--- start log ---"
   cat /tmp/visual_demo_check_start.log || true
   echo "--- manager log ---"
   cat /tmp/swarm_manager.log || true
+  echo "--- topology log ---"
+  cat /tmp/swarm_topology.log || true
   echo "--- visual server log ---"
   cat /tmp/swarm_visual_server.log || true
   exit 1
