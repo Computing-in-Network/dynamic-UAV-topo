@@ -8,6 +8,12 @@ TOTAL_CORES="${2:-4}"
 BASE_PORT="${3:-8899}"
 TAG="semantic_net_demo_start"
 DRY_RUN="${DEMO_DRY_RUN:-0}"
+TOPO_OCCLUSION_MODE="${TOPO_OCCLUSION_MODE:-altitude_gap}"
+TOPO_OCCLUSION_ALTITUDE_GAP_M="${TOPO_OCCLUSION_ALTITUDE_GAP_M:-35.0}"
+TOPO_OCCLUSION_PENALTY="${TOPO_OCCLUSION_PENALTY:-0.4}"
+TOPO_OCCLUSION_TERRAIN_CSV="${TOPO_OCCLUSION_TERRAIN_CSV:-}"
+TOPO_OCCLUSION_TERRAIN_CLEARANCE_M="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M:-20.0}"
+TOPO_OCCLUSION_TERRAIN_SAMPLES="${TOPO_OCCLUSION_TERRAIN_SAMPLES:-24}"
 
 PACKET_DROP_RATE="${4:-0.20}"
 DROP_MODE="${5:-weight}"
@@ -43,6 +49,21 @@ source "${ROOT_DIR}/ros2_ws/install/setup.bash" || {
   log_error "${TAG}" "E_WS_SOURCE" "加载工作区环境失败，请先构建 ros2_ws"
   exit 7
 }
+
+TOPO_ARGS=(
+  -p input_topic:=/swarm/state_raw
+  -p output_topic:=/swarm/state
+  -p occlusion_mode:="${TOPO_OCCLUSION_MODE}"
+  -p occlusion_altitude_gap_m:="${TOPO_OCCLUSION_ALTITUDE_GAP_M}"
+  -p occlusion_penalty:="${TOPO_OCCLUSION_PENALTY}"
+)
+if [[ -n "${TOPO_OCCLUSION_TERRAIN_CSV}" ]]; then
+  TOPO_ARGS+=(
+    -p occlusion_terrain_csv:="${TOPO_OCCLUSION_TERRAIN_CSV}"
+    -p occlusion_terrain_clearance_m:="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M}"
+    -p occlusion_terrain_samples:="${TOPO_OCCLUSION_TERRAIN_SAMPLES}"
+  )
+fi
 if ! command -v ros2 >/dev/null 2>&1; then
   log_error "${TAG}" "E_ROS2_CMD" "未找到 ros2 命令"
   exit 8
@@ -62,8 +83,7 @@ ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
 MANAGER_PID=$!
 
 ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
-  -p input_topic:=/swarm/state_raw \
-  -p output_topic:=/swarm/state \
+  "${TOPO_ARGS[@]}" \
   > /tmp/swarm_topology_semantic.log 2>&1 &
 TOPO_PID=$!
 
@@ -87,4 +107,5 @@ echo "${MANAGER_PID} ${TOPO_PID} ${SEM_PID} ${VIS_PID}" > "${ROOT_DIR}/.semantic
 echo "${VIS_PORT}" > "${ROOT_DIR}/.semantic_net_demo_port"
 log_info "${TAG}" "started manager_pid=${MANAGER_PID} topo_pid=${TOPO_PID} semantic_pid=${SEM_PID} vis_pid=${VIS_PID}"
 log_info "${TAG}" "open http://127.0.0.1:${VIS_PORT}"
+log_info "${TAG}" "topology occlusion_mode=${TOPO_OCCLUSION_MODE} terrain_csv=${TOPO_OCCLUSION_TERRAIN_CSV:-<none>}"
 log_info "${TAG}" "semantic params packet_drop_rate=${PACKET_DROP_RATE} drop_mode=${DROP_MODE} throttle_mode=${THROTTLE_MODE} delay_base_ms=${DELAY_BASE_MS} delay_scale_ms=${DELAY_SCALE_MS} seed=${SEED}"

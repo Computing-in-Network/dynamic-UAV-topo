@@ -112,6 +112,61 @@
 - `occlusion_terrain_samples`：连线采样点数（`terrain_csv` 模式）。
 - `terrain_csv` 加载失败时自动回退到 `altitude_gap`。
 
+`terrain_csv` 输入契约：
+
+- 纯文本 CSV，按 `lat,lon,alt` 三列组织。
+- 首行可选表头，允许为 `lat,lon,alt`。
+- 允许以 `#` 开头的注释行。
+- 每行表示一个场景采样点，节点会在 UAV 连线采样点附近选取最近地形点进行阻塞判定。
+- 若文件缺失、为空或无法解析出有效点，节点会记录告警并自动回退到 `altitude_gap`。
+
+示例文件：
+
+- `docs/examples/terrain_occlusion_sample.csv`
+
+常用启动方式：
+
+```bash
+TOPO_OCCLUSION_MODE=terrain_csv \
+TOPO_OCCLUSION_TERRAIN_CSV=./docs/examples/terrain_occlusion_sample.csv \
+./scripts/visual_demo_start.sh 4 4 8899
+```
+
+同样的 `TOPO_OCCLUSION_*` 环境变量也可用于 `fire_mission_demo_start.sh` 与 `semantic_net_demo.sh`。
+
+最小验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_csv.sh
+```
+
+通过标准：
+
+- 输出 `occluded_low=True occluded_high=False`
+- 输出 `[test_occlusion_terrain_csv] PASS: ...`
+
+回退验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_fallback.sh
+```
+
+通过标准：
+
+- 输出 `occluded_first=True occluded_second=False fallback_logged=True`
+- 输出 `[test_occlusion_terrain_fallback] PASS: ...`
+
+轻量性能验收：
+
+```bash
+bash ./scripts/profile_topology_terrain_csv.sh 20 20 100 8 20
+```
+
+通过标准：
+
+- 输出 `status=PASS`
+- 输出 `[profile_topology_terrain_csv] PASS: ...`
+
 ## 100Hz 压力测试
 
 ```bash
