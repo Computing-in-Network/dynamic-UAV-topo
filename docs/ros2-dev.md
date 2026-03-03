@@ -235,6 +235,27 @@ bash ./scripts/profile_topology_terrain_csv.sh 20 20 100 8 20
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
   - mission 完成时延统计（`completion_s`）
 
+## P1 阶段验收基线
+
+```bash
+./scripts/p1_acceptance.sh
+```
+
+执行顺序：
+
+1. 任务规划稳态回归
+2. 遮挡真实性最小验收
+3. 遮挡回退/非法输入/模式对比
+4. 100Hz 压测指标验收
+5. Fire Mission FDS 主链路验收
+
+失败排查入口：
+
+- 任务规划：`tests/test_mission_planner.py`
+- 遮挡：`/tmp/swarm_occlusion_*.log`
+- 压测：`/tmp/swarm_manager_stress.log`、`/tmp/swarm_topology_stress.log`、`/tmp/mission_planner_stress.log`
+- Fire Mission：`/tmp/fire_demo_start.log`、`/tmp/fire_adapter_fds.log`、`/tmp/mission_planner.log`
+
 ### 任务规划稳态回归（P1）
 
 可直接运行：
