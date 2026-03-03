@@ -20,6 +20,12 @@ FDS_REGION_INPUT_FORMAT="${10:-jsonl}"
 FDS_INPUT_PROFILE="${11:-normalized}"
 FDS_REGION_INPUT_PROFILE="${12:-normalized}"
 DRY_RUN="${DEMO_DRY_RUN:-0}"
+TOPO_OCCLUSION_MODE="${TOPO_OCCLUSION_MODE:-altitude_gap}"
+TOPO_OCCLUSION_ALTITUDE_GAP_M="${TOPO_OCCLUSION_ALTITUDE_GAP_M:-35.0}"
+TOPO_OCCLUSION_PENALTY="${TOPO_OCCLUSION_PENALTY:-0.4}"
+TOPO_OCCLUSION_TERRAIN_CSV="${TOPO_OCCLUSION_TERRAIN_CSV:-}"
+TOPO_OCCLUSION_TERRAIN_CLEARANCE_M="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M:-20.0}"
+TOPO_OCCLUSION_TERRAIN_SAMPLES="${TOPO_OCCLUSION_TERRAIN_SAMPLES:-24}"
 
 if [[ "${FIRE_SOURCE_MODE}" != "demo" && "${FIRE_SOURCE_MODE}" != "fds" ]]; then
   log_error "${TAG}" "E_USAGE" "不支持的 FIRE_SOURCE_MODE=${FIRE_SOURCE_MODE}，可选: demo|fds"
@@ -71,6 +77,21 @@ fi
 mkdir -p /tmp/roslog
 export ROS_LOG_DIR=/tmp/roslog
 
+TOPO_ARGS=(
+  -p input_topic:=/swarm/state_raw
+  -p output_topic:=/swarm/state
+  -p occlusion_mode:="${TOPO_OCCLUSION_MODE}"
+  -p occlusion_altitude_gap_m:="${TOPO_OCCLUSION_ALTITUDE_GAP_M}"
+  -p occlusion_penalty:="${TOPO_OCCLUSION_PENALTY}"
+)
+if [[ -n "${TOPO_OCCLUSION_TERRAIN_CSV}" ]]; then
+  TOPO_ARGS+=(
+    -p occlusion_terrain_csv:="${TOPO_OCCLUSION_TERRAIN_CSV}"
+    -p occlusion_terrain_clearance_m:="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M}"
+    -p occlusion_terrain_samples:="${TOPO_OCCLUSION_TERRAIN_SAMPLES}"
+  )
+fi
+
 ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
   -p instance_count:="${INSTANCE_COUNT}" \
   -p total_cores:="${TOTAL_CORES}" \
@@ -84,8 +105,7 @@ ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
 MANAGER_PID=$!
 
 ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
-  -p input_topic:=/swarm/state_raw \
-  -p output_topic:=/swarm/state \
+  "${TOPO_ARGS[@]}" \
   > /tmp/swarm_topology_fire_demo.log 2>&1 &
 TOPO_PID=$!
 
@@ -133,6 +153,7 @@ VIS_PID=$!
 echo "${MANAGER_PID} ${TOPO_PID} ${FIRE_PID} ${PLANNER_PID} ${VIS_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
 log_info "${TAG}" "manager=${MANAGER_PID} topo=${TOPO_PID} fire=${FIRE_PID} planner=${PLANNER_PID} vis=${VIS_PID} fire_source=${FIRE_SOURCE_MODE}"
+log_info "${TAG}" "topology occlusion_mode=${TOPO_OCCLUSION_MODE} terrain_csv=${TOPO_OCCLUSION_TERRAIN_CSV:-<none>}"
 if [[ "${FIRE_SOURCE_MODE}" == "fds" ]]; then
   log_info "${TAG}" "fds_input=${FDS_INPUT_PATH} format=${FDS_INPUT_FORMAT} profile=${FDS_INPUT_PROFILE} time_mode=${FDS_TIME_MODE} replay_speed=${FDS_REPLAY_SPEED}"
   if [[ -f "${FDS_REGION_INPUT_PATH}" ]]; then

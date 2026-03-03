@@ -11,6 +11,12 @@ INSTANCE_COUNT="${1:-4}"
 TOTAL_CORES="${2:-$(nproc)}"
 BASE_PORT="${3:-8899}"
 DRY_RUN="${DEMO_DRY_RUN:-0}"
+TOPO_OCCLUSION_MODE="${TOPO_OCCLUSION_MODE:-altitude_gap}"
+TOPO_OCCLUSION_ALTITUDE_GAP_M="${TOPO_OCCLUSION_ALTITUDE_GAP_M:-35.0}"
+TOPO_OCCLUSION_PENALTY="${TOPO_OCCLUSION_PENALTY:-0.4}"
+TOPO_OCCLUSION_TERRAIN_CSV="${TOPO_OCCLUSION_TERRAIN_CSV:-}"
+TOPO_OCCLUSION_TERRAIN_CLEARANCE_M="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M:-20.0}"
+TOPO_OCCLUSION_TERRAIN_SAMPLES="${TOPO_OCCLUSION_TERRAIN_SAMPLES:-24}"
 
 "${ROOT_DIR}/scripts/visual_demo_stop.sh" >/dev/null 2>&1 || true
 
@@ -55,6 +61,21 @@ fi
 
 PX4_CMD="cd ${ROOT_DIR}/third_party/PX4-Autopilot && PX4_SIM_MODEL=none ./build/px4_sitl_default/bin/px4 -i {index} -d ./build/px4_sitl_default/etc"
 
+TOPO_ARGS=(
+  -p input_topic:=/swarm/state_raw
+  -p output_topic:=/swarm/state
+  -p occlusion_mode:="${TOPO_OCCLUSION_MODE}"
+  -p occlusion_altitude_gap_m:="${TOPO_OCCLUSION_ALTITUDE_GAP_M}"
+  -p occlusion_penalty:="${TOPO_OCCLUSION_PENALTY}"
+)
+if [[ -n "${TOPO_OCCLUSION_TERRAIN_CSV}" ]]; then
+  TOPO_ARGS+=(
+    -p occlusion_terrain_csv:="${TOPO_OCCLUSION_TERRAIN_CSV}"
+    -p occlusion_terrain_clearance_m:="${TOPO_OCCLUSION_TERRAIN_CLEARANCE_M}"
+    -p occlusion_terrain_samples:="${TOPO_OCCLUSION_TERRAIN_SAMPLES}"
+  )
+fi
+
 ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
   -p instance_count:="${INSTANCE_COUNT}" \
   -p total_cores:="${TOTAL_CORES}" \
@@ -67,8 +88,7 @@ ros2 run swarm_uav_manager swarm_uav_manager_node --ros-args \
 MANAGER_PID=$!
 
 ros2 run swarm_topology_analyzer swarm_topology_analyzer_node --ros-args \
-  -p input_topic:=/swarm/state_raw \
-  -p output_topic:=/swarm/state \
+  "${TOPO_ARGS[@]}" \
   > /tmp/swarm_topology.log 2>&1 &
 TOPO_PID=$!
 
@@ -79,6 +99,7 @@ SERVER_PID=$!
 echo "${MANAGER_PID} ${TOPO_PID} ${SERVER_PID}" > "${PIDS_FILE}"
 echo "${VIS_PORT}" > "${PORT_FILE}"
 log_info "${TAG}" "manager_pid=${MANAGER_PID} topo_pid=${TOPO_PID} server_pid=${SERVER_PID}"
+log_info "${TAG}" "topology occlusion_mode=${TOPO_OCCLUSION_MODE} terrain_csv=${TOPO_OCCLUSION_TERRAIN_CSV:-<none>}"
 if [[ "${VIS_PORT}" != "${BASE_PORT}" ]]; then
   log_warn "${TAG}" "端口 ${BASE_PORT} 被占用，已自动回退到 ${VIS_PORT}"
 fi

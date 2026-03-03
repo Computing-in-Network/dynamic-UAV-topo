@@ -112,6 +112,85 @@
 - `occlusion_terrain_samples`：连线采样点数（`terrain_csv` 模式）。
 - `terrain_csv` 加载失败时自动回退到 `altitude_gap`。
 
+`terrain_csv` 输入契约：
+
+- 纯文本 CSV，按 `lat,lon,alt` 三列组织。
+- 首行可选表头，允许为 `lat,lon,alt`。
+- 允许以 `#` 开头的注释行。
+- 每行表示一个场景采样点，节点会在 UAV 连线采样点附近选取最近地形点进行阻塞判定。
+- 若文件缺失、为空或无法解析出有效点，节点会记录告警并自动回退到 `altitude_gap`。
+
+示例文件：
+
+- `docs/examples/terrain_occlusion_sample.csv`
+
+常用启动方式：
+
+```bash
+TOPO_OCCLUSION_MODE=terrain_csv \
+TOPO_OCCLUSION_TERRAIN_CSV=./docs/examples/terrain_occlusion_sample.csv \
+./scripts/visual_demo_start.sh 4 4 8899
+```
+
+同样的 `TOPO_OCCLUSION_*` 环境变量也可用于 `fire_mission_demo_start.sh` 与 `semantic_net_demo.sh`。
+
+最小验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_csv.sh
+```
+
+通过标准：
+
+- 输出 `occluded_low=True occluded_high=False`
+- 输出 `[test_occlusion_terrain_csv] PASS: ...`
+
+回退验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_fallback.sh
+```
+
+通过标准：
+
+- 输出 `occluded_first=True occluded_second=False fallback_logged=True`
+- 输出 `[test_occlusion_terrain_fallback] PASS: ...`
+
+非法数据验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_invalid.sh
+```
+
+通过标准：
+
+- 输出 `occluded_first=True occluded_second=False skip_logged=True fallback_logged=True`
+- 输出 `[test_occlusion_terrain_invalid] PASS: ...`
+
+模式对比验证：
+
+```bash
+bash ./scripts/compare_occlusion_modes.sh
+```
+
+通过标准：
+
+- `scenario=clear_high` 下两种模式均为 `false`
+- `scenario=terrain_ridge` 下 `altitude_gap=false` 且 `terrain_csv=true`
+- `scenario=altitude_gap` 下 `altitude_gap=true` 且 `terrain_csv=false`
+- 输出 `[compare_occlusion_modes] PASS: ...`
+
+轻量性能验收：
+
+```bash
+bash ./scripts/profile_topology_terrain_csv.sh 20 20 100 8 20
+```
+
+通过标准：
+
+- 输出 `status=PASS`
+- 输出 `[profile_topology_terrain_csv] PASS: ...`
+
 ## 100Hz 压力测试
 
 ```bash
@@ -121,11 +200,13 @@
 说明：
 
 - 脚本会启动 manager + topology，并持续采集 `/swarm/state` 消息数。
-- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`、`e2e_latency_ms(avg/p95)`、`drop_ratio`、`interval_ms(jitter/max)`。
+- 脚本会同时启动 `fire_adapter_demo.py` 与 `mission_planner.py`，用于观测任务下发到 UAV 响应的闭环时延。
+- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`、`e2e_latency_ms(avg/p95)`、`drop_ratio`、`interval_ms(jitter/max)`、`mission_loop_ms(response)`、`mission_msgs`、`tracked_uav`。
 - 当前通过标准：
   - 拓扑 `status=PASS`
   - `observed_hz >= 0.8 * target_hz`
   - `drop_ratio <= 0.20`
+- `mission_loop_ms(response)` 当前作为附加观测指标输出；若未采集到，会输出 `WARN`，暂不作为强制失败条件。
 
 ## Fire Mission MVP（模拟 FDS 输出）
 
@@ -153,6 +234,52 @@
   - mission 目标已发布
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
   - mission 完成时延统计（`completion_s`）
+
+## P1 阶段验收基线
+
+```bash
+./scripts/p1_acceptance.sh
+```
+
+执行顺序：
+
+1. 任务规划稳态回归
+2. 遮挡真实性最小验收
+3. 遮挡回退/非法输入/模式对比
+4. 100Hz 压测指标验收
+5. Fire Mission FDS 主链路验收
+
+失败排查入口：
+
+- 任务规划：`tests/test_mission_planner.py`
+- 遮挡：`/tmp/swarm_occlusion_*.log`
+- 压测：`/tmp/swarm_manager_stress.log`、`/tmp/swarm_topology_stress.log`、`/tmp/mission_planner_stress.log`
+- Fire Mission：`/tmp/fire_demo_start.log`、`/tmp/fire_adapter_fds.log`、`/tmp/mission_planner.log`
+
+### 任务规划稳态回归（P1）
+
+可直接运行：
+
+```bash
+python3 tests/test_mission_planner.py
+```
+
+覆盖场景：
+
+- 单热点：验证同一 UAV 持续锁定同一目标，不发生切换。
+- 热点持续变化：验证冷却窗口抑制短周期改派。
+- 多热点/多 UAV：验证相邻热点场景下的重复覆盖抑制。
+
+输出指标：
+
+- `switches`：任务切换次数，期望在单热点场景为 `0`。
+- `repeat_assignments`：重复覆盖次数，期望在多 UAV 分散覆盖场景为 `0`。
+- `revisit_gap_s`：复访/重规划间隔，用于确认测试输入时序固定。
+
+判定通过：
+
+- 所有断言通过，并输出 `test_mission_planner: PASS`。
+- 若执行 `scripts/release_smoke.sh`，该测试会作为 `tests/test_*.py` 的一部分自动执行。
 
 ## 语义网络退化模拟
 
