@@ -172,6 +172,24 @@
 - 消息间隔抖动（`interval_ms jitter/max`）
 - 任务下发到 UAV 响应的闭环时延（`mission_loop_ms response`，当前为附加观测指标）
 
+## P1 一键验收基线
+
+```bash
+./scripts/p1_acceptance.sh
+```
+
+覆盖范围：
+
+- 任务规划稳态回归（`tests/test_mission_planner.py`）
+- 遮挡真实性与回退/异常测试（`test_occlusion_terrain_*`、`compare_occlusion_modes.sh`）
+- 100Hz 压测指标（`stress_100hz.sh`）
+- Fire Mission FDS 主链路验收（`fire_mission_demo_check.sh`）
+
+通过标准：
+
+- 各子步骤均输出自身 `PASS`
+- 最终输出 `[p1_acceptance] PASS: P1 acceptance baseline`
+
 ## Ricci/CUDA PoC 评估（#10）
 
 ```bash
