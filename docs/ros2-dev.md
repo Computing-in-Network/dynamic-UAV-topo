@@ -154,6 +154,31 @@
   - 至少一架被分配任务的 UAV 在观测窗口内产生明显位移
   - mission 完成时延统计（`completion_s`）
 
+### 任务规划稳态回归（P1）
+
+可直接运行：
+
+```bash
+python3 tests/test_mission_planner.py
+```
+
+覆盖场景：
+
+- 单热点：验证同一 UAV 持续锁定同一目标，不发生切换。
+- 热点持续变化：验证冷却窗口抑制短周期改派。
+- 多热点/多 UAV：验证相邻热点场景下的重复覆盖抑制。
+
+输出指标：
+
+- `switches`：任务切换次数，期望在单热点场景为 `0`。
+- `repeat_assignments`：重复覆盖次数，期望在多 UAV 分散覆盖场景为 `0`。
+- `revisit_gap_s`：复访/重规划间隔，用于确认测试输入时序固定。
+
+判定通过：
+
+- 所有断言通过，并输出 `test_mission_planner: PASS`。
+- 若执行 `scripts/release_smoke.sh`，该测试会作为 `tests/test_*.py` 的一部分自动执行。
+
 ## 语义网络退化模拟
 
 ```bash
