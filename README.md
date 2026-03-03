@@ -167,6 +167,10 @@
 - 拓扑 profile（`avg_ms/max_ms/status`）
 - `/swarm/state` 实测频率（`observed_hz`）
 - 系统 context switch 频率（`context_switch_hz`）
+- 端到端延迟（`e2e_latency_ms avg/p95`）
+- 掉包率（`drop_ratio`）
+- 消息间隔抖动（`interval_ms jitter/max`）
+- 任务下发到 UAV 响应的闭环时延（`mission_loop_ms response`，当前为附加观测指标）
 
 ## Ricci/CUDA PoC 评估（#10）
 

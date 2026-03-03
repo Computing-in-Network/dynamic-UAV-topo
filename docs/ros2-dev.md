@@ -200,11 +200,13 @@ bash ./scripts/profile_topology_terrain_csv.sh 20 20 100 8 20
 说明：
 
 - 脚本会启动 manager + topology，并持续采集 `/swarm/state` 消息数。
-- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`、`e2e_latency_ms(avg/p95)`、`drop_ratio`、`interval_ms(jitter/max)`。
+- 脚本会同时启动 `fire_adapter_demo.py` 与 `mission_planner.py`，用于观测任务下发到 UAV 响应的闭环时延。
+- 统计结果会输出：`observed_hz`、`context_switch_hz`、拓扑 `profile status`、`e2e_latency_ms(avg/p95)`、`drop_ratio`、`interval_ms(jitter/max)`、`mission_loop_ms(response)`、`mission_msgs`、`tracked_uav`。
 - 当前通过标准：
   - 拓扑 `status=PASS`
   - `observed_hz >= 0.8 * target_hz`
   - `drop_ratio <= 0.20`
+- `mission_loop_ms(response)` 当前作为附加观测指标输出；若未采集到，会输出 `WARN`，暂不作为强制失败条件。
 
 ## Fire Mission MVP（模拟 FDS 输出）
 
