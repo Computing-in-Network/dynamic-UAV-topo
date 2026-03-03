@@ -1,0 +1,5 @@
+lat,lon,alt
+bad_lat,116.40755,160.0
+39.90420,bad_lon,160.0
+39.90420,116.40770,not_a_number
+# comment line kept for parser coverage

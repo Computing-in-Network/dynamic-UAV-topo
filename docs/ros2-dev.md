@@ -156,6 +156,30 @@ bash ./scripts/test_occlusion_terrain_fallback.sh
 - 输出 `occluded_first=True occluded_second=False fallback_logged=True`
 - 输出 `[test_occlusion_terrain_fallback] PASS: ...`
 
+非法数据验收：
+
+```bash
+bash ./scripts/test_occlusion_terrain_invalid.sh
+```
+
+通过标准：
+
+- 输出 `occluded_first=True occluded_second=False skip_logged=True fallback_logged=True`
+- 输出 `[test_occlusion_terrain_invalid] PASS: ...`
+
+模式对比验证：
+
+```bash
+bash ./scripts/compare_occlusion_modes.sh
+```
+
+通过标准：
+
+- `scenario=clear_high` 下两种模式均为 `false`
+- `scenario=terrain_ridge` 下 `altitude_gap=false` 且 `terrain_csv=true`
+- `scenario=altitude_gap` 下 `altitude_gap=true` 且 `terrain_csv=false`
+- 输出 `[compare_occlusion_modes] PASS: ...`
+
 轻量性能验收：
 
 ```bash
