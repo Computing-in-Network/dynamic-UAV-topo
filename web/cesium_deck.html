@@ -74,6 +74,21 @@
         align-items: center;
         gap: 6px;
       }
+      .controls button, .controls select {
+        background: #0f2040;
+        border: 1px solid var(--line);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 4px 8px;
+      }
+      .controls button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .timeline-status {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--muted);
+      }
       .slider-wrap {
         display: flex;
         gap: 8px;
@@ -121,12 +136,28 @@
             <label><input id="show_links" type="checkbox" checked />链路</label>
             <label><input id="show_fire" type="checkbox" checked />火点/火区</label>
             <label><input id="show_mission" type="checkbox" checked />任务</label>
-            <label><input id="replay_auto" type="checkbox" checked />回放自动</label>
+            <label>模式
+              <select id="timeline_mode">
+                <option value="realtime">实时</option>
+                <option value="replay">回放</option>
+              </select>
+            </label>
+            <button id="timeline_play" type="button">播放</button>
+            <button id="timeline_pause" type="button">暂停</button>
+            <button id="timeline_reset" type="button">重置</button>
+            <label>速率
+              <select id="timeline_speed">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+              </select>
+            </label>
             <div class="slider-wrap">
-              <span>回放:</span>
+              <span>时间轴:</span>
               <input id="history_slider" type="range" min="0" max="0" value="0" disabled />
               <span id="history_label">-</span>
             </div>
+            <span id="timeline_status" class="timeline-status">实时模式</span>
           </div>
           <div id="deck"></div>
           <div class="table-wrap">
@@ -155,9 +186,14 @@
       const showLinks = document.getElementById('show_links');
       const showFire = document.getElementById('show_fire');
       const showMission = document.getElementById('show_mission');
-      const replayAuto = document.getElementById('replay_auto');
+      const timelineMode = document.getElementById('timeline_mode');
+      const timelinePlay = document.getElementById('timeline_play');
+      const timelinePause = document.getElementById('timeline_pause');
+      const timelineReset = document.getElementById('timeline_reset');
+      const timelineSpeed = document.getElementById('timeline_speed');
       const historySlider = document.getElementById('history_slider');
       const historyLabel = document.getElementById('history_label');
+      const timelineStatus = document.getElementById('timeline_status');
       let basemapMode = 'OSM';
       let osmErrorCount = 0;
       const forceBasemap = new URLSearchParams(window.location.search).get('basemap');
@@ -165,7 +201,12 @@
       const stateHistory = [];
       const maxHistory = 120;
       let replayIndex = -1;
-      let isReplayAuto = true;
+      let replayMode = 'realtime';
+      let replayPlaying = false;
+      let replaySpeed = 1.0;
+      let replayAccumulatorMs = 0;
+      let lastReplayTickMs = performance.now();
+      const fetchIntervalMs = 500;
 
       Cesium.Ion.defaultAccessToken = undefined;
       const osmProvider = new Cesium.OpenStreetMapImageryProvider({
@@ -230,24 +271,27 @@
         if (stateHistory.length > maxHistory) {
           stateHistory.shift();
         }
-        if (isReplayAuto) {
+        if (replayMode === 'realtime') {
           replayIndex = stateHistory.length - 1;
         } else if (replayIndex >= stateHistory.length) {
           replayIndex = stateHistory.length - 1;
         }
         historySlider.max = String(Math.max(0, stateHistory.length - 1));
         historySlider.disabled = stateHistory.length <= 1;
-        historyLabel.textContent = `${replayIndex + 1}/${stateHistory.length}`;
+        if (replayMode === 'realtime') {
+          historySlider.value = String(Math.max(0, replayIndex));
+        }
+        updateTimelineStatus();
       }
 
       function pickFrameForRender() {
         if (stateHistory.length === 0) {
           return null;
         }
-        if (isReplayAuto) {
+        if (replayMode === 'realtime') {
           replayIndex = stateHistory.length - 1;
-          historySlider.value = String(replayIndex);
-          return stateHistory[replayIndex];
+          historySlider.value = String(Math.max(0, replayIndex));
+          return stateHistory[Math.max(0, replayIndex)];
         }
         const idx = Math.max(0, Math.min(replayIndex, stateHistory.length - 1));
         return stateHistory[idx];
@@ -284,23 +328,81 @@
           ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
           : 'n/a';
         const frameTime = new Date(state.timestamp).toISOString();
+        const replayTag = replayMode === 'realtime'
+          ? '实时'
+          : `${replayPlaying ? '回放中' : '回放暂停'} ${replayIndex + 1}/${stateHistory.length} @${replaySpeed}x`;
 
-        meta.innerHTML = `timestamp=${state.timestamp} 时间=${frameTime} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">fire_regions=${state.fire_regions.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">fire_region=${fireRegionMode ? 'on' : 'off'}</span><span class="badge">replay=${isReplayAuto ? 'auto' : replayIndex + 1}/${stateHistory.length}</span>`;
+        meta.innerHTML = `timestamp=${state.timestamp} 时间=${frameTime} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">fire_regions=${state.fire_regions.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">fire_region=${fireRegionMode ? 'on' : 'off'}</span><span class="badge">timeline=${replayTag}</span>`;
         applyLayerVisibility(state);
+        updateTimelineStatus();
+      }
+
+      function updateTimelineStatus() {
+        if (!stateHistory.length || replayIndex < 0) {
+          historyLabel.textContent = '-';
+          timelineStatus.textContent = replayMode === 'realtime' ? '实时模式' : '回放模式（无历史帧）';
+          return;
+        }
+        const frame = stateHistory[Math.max(0, Math.min(replayIndex, stateHistory.length - 1))];
+        const frameTime = new Date(frame.timestamp || 0).toISOString();
+        historyLabel.textContent = `${replayIndex + 1}/${stateHistory.length}`;
+        if (replayMode === 'realtime') {
+          timelineStatus.textContent = `实时模式 | 缓存=${stateHistory.length}帧`;
+        } else {
+          timelineStatus.textContent = `${replayPlaying ? '播放中' : '暂停'} | ${frameTime} | ${replaySpeed}x`;
+        }
+      }
+
+      function updateReplayControlState() {
+        const replayActive = replayMode === 'replay';
+        const hasHistory = stateHistory.length > 0;
+        timelinePlay.disabled = !replayActive || !hasHistory;
+        timelinePause.disabled = !replayActive || !hasHistory;
+        timelineReset.disabled = !replayActive || !hasHistory;
+        timelineSpeed.disabled = !replayActive;
       }
 
       function refreshReplayView() {
-        historyLabel.textContent = stateHistory.length ? `${(isReplayAuto ? stateHistory.length : replayIndex + 1)}/${stateHistory.length}` : '-';
-        if (isReplayAuto) {
+        if (replayMode === 'realtime' && stateHistory.length) {
           replayIndex = stateHistory.length - 1;
-          historySlider.value = String(Math.max(0, replayIndex));
+          historySlider.value = String(replayIndex);
         }
+        updateReplayControlState();
         renderFrame();
       }
 
-      replayAuto.addEventListener('change', () => {
-        isReplayAuto = replayAuto.checked;
+      timelineMode.addEventListener('change', () => {
+        replayMode = timelineMode.value === 'replay' ? 'replay' : 'realtime';
+        if (replayMode === 'realtime') {
+          replayPlaying = false;
+        } else {
+          replayIndex = Math.max(0, stateHistory.length - 1);
+          historySlider.value = String(Math.max(0, replayIndex));
+        }
         refreshReplayView();
+      });
+      timelinePlay.addEventListener('click', () => {
+        if (replayMode !== 'replay' || !stateHistory.length) return;
+        replayPlaying = true;
+        lastReplayTickMs = performance.now();
+        refreshReplayView();
+      });
+      timelinePause.addEventListener('click', () => {
+        replayPlaying = false;
+        refreshReplayView();
+      });
+      timelineReset.addEventListener('click', () => {
+        if (replayMode !== 'replay' || !stateHistory.length) return;
+        replayPlaying = false;
+        replayAccumulatorMs = 0;
+        replayIndex = 0;
+        historySlider.value = '0';
+        refreshReplayView();
+      });
+      timelineSpeed.addEventListener('change', () => {
+        const nextSpeed = Number(timelineSpeed.value);
+        replaySpeed = Number.isFinite(nextSpeed) ? nextSpeed : 1.0;
+        updateTimelineStatus();
       });
       showLinks.addEventListener('change', refreshReplayView);
       showFire.addEventListener('change', refreshReplayView);
@@ -309,11 +411,33 @@
         if (!stateHistory.length) {
           return;
         }
-        isReplayAuto = false;
-        replayAuto.checked = false;
+        replayMode = 'replay';
+        timelineMode.value = 'replay';
+        replayPlaying = false;
         replayIndex = parseInt(e.target.value, 10);
         refreshReplayView();
       });
+
+      function replayTick() {
+        const now = performance.now();
+        const dtMs = now - lastReplayTickMs;
+        lastReplayTickMs = now;
+        if (replayMode === 'replay' && replayPlaying && stateHistory.length > 1) {
+          replayAccumulatorMs += dtMs * replaySpeed;
+          while (replayAccumulatorMs >= fetchIntervalMs) {
+            replayAccumulatorMs -= fetchIntervalMs;
+            replayIndex += 1;
+            if (replayIndex >= stateHistory.length - 1) {
+              replayIndex = stateHistory.length - 1;
+              replayPlaying = false;
+              break;
+            }
+          }
+          historySlider.value = String(Math.max(0, replayIndex));
+          renderFrame();
+        }
+        requestAnimationFrame(replayTick);
+      }
 
       const entityMap = new Map();
       const polylineMap = new Map();
@@ -698,6 +822,7 @@
 
       setInterval(tick, 500);
       tick();
+      requestAnimationFrame(replayTick);
     </script>
   </body>
 </html>
