@@ -43,7 +43,7 @@
       }
       .side-inner {
         display: grid;
-        grid-template-rows: auto auto auto 200px 1fr;
+        grid-template-rows: auto auto auto 180px 180px 1fr;
         height: 100%;
       }
       .meta {
@@ -59,6 +59,38 @@
       }
       .table-wrap {
         overflow: auto;
+      }
+      .explain-panel {
+        border-top: 1px solid var(--line);
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+      .explain-title {
+        margin-bottom: 6px;
+        font-weight: 600;
+      }
+      .explain-kv {
+        display: grid;
+        grid-template-columns: 82px 1fr;
+        gap: 4px 8px;
+        margin-bottom: 8px;
+      }
+      .explain-k {
+        color: var(--muted);
+      }
+      .factor-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .factor-chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+      }
+      .selected-row {
+        background: rgba(59, 130, 246, 0.15);
       }
       .controls {
         display: flex;
@@ -122,7 +154,7 @@
       }
       @media (max-width: 1024px) {
         .layout { grid-template-columns: 1fr; }
-        .side-inner { grid-template-rows: auto auto auto 140px 1fr; }
+        .side-inner { grid-template-rows: auto auto auto 140px 160px 1fr; }
       }
     </style>
   </head>
@@ -176,6 +208,7 @@
               <tbody id="mission_rows"></tbody>
             </table>
           </div>
+          <div id="mission_explain" class="explain-panel">任务解释初始化中...</div>
         </div>
       </div>
     </div>
@@ -186,6 +219,7 @@
       const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], fire_regions: [], mission_targets: [] };
       const rows = document.getElementById('rows');
       const missionRows = document.getElementById('mission_rows');
+      const missionExplain = document.getElementById('mission_explain');
       const meta = document.getElementById('meta');
       const showLinks = document.getElementById('show_links');
       const showHotspots = document.getElementById('show_hotspots');
@@ -209,6 +243,7 @@
       const stateHistory = [];
       const maxHistory = 120;
       const defaultView = { lon: 116.4074, lat: 39.9042, alt: 22000.0 };
+      let selectedMissionUavId = '';
       let replayIndex = -1;
       let replayMode = 'realtime';
       let replayPlaying = false;
@@ -847,27 +882,81 @@
       }
 
       function updateTable(uavs) {
+        const missionByUav = new Map((state.mission_targets || []).map(t => [t.uav_id, t]));
         rows.innerHTML = '';
         for (const u of uavs) {
           const tr = document.createElement('tr');
+          if (u.id === selectedMissionUavId) {
+            tr.classList.add('selected-row');
+          }
+          tr.title = missionByUav.has(u.id) ? `查看 ${u.id} 任务解释` : `${u.id} 当前无任务`;
+          tr.addEventListener('click', () => {
+            selectedMissionUavId = u.id;
+            updateTable(state.uavs);
+            updateMissionTable(state.mission_targets);
+          });
           tr.innerHTML = `<td>${u.id}</td><td>${u.position[0].toFixed(6)}</td><td>${u.position[1].toFixed(6)}</td><td>${u.position[2].toFixed(1)}</td><td class="status-${u.status}">${u.status}</td>`;
           rows.appendChild(tr);
         }
+      }
+
+      function parseMissionReason(reasonText) {
+        const reason = String(reasonText || '');
+        const raw = reason.toLowerCase();
+        const factors = [];
+        if (/distance|距离|near/.test(raw)) factors.push('距离成本');
+        if (/hold|保持|stable|稳定/.test(raw)) factors.push('保持稳定');
+        if (/reassign|switch|切换|penalty|惩罚/.test(raw)) factors.push('切换惩罚');
+        if (/coverage|覆盖|density|密度|spread|散布/.test(raw)) factors.push('覆盖抑制');
+        if (!factors.length) factors.push('通用策略');
+        return factors;
+      }
+
+      function updateMissionExplainPanel(targets) {
+        if (!targets.length) {
+          missionExplain.innerHTML = '<div class="explain-title">任务解释面板</div><div class="explain-k">当前无任务目标</div>';
+          return;
+        }
+        const selected = targets.find(t => t.uav_id === selectedMissionUavId) || targets[0];
+        selectedMissionUavId = selected.uav_id;
+        const factors = parseMissionReason(selected.reason);
+        const p = selected.position || [0, 0, 0];
+        missionExplain.innerHTML = `
+          <div class="explain-title">任务解释面板（${selected.uav_id}）</div>
+          <div class="explain-kv">
+            <div class="explain-k">目标点</div><div>${p[0].toFixed(6)}, ${p[1].toFixed(6)}, ${p[2].toFixed(1)}</div>
+            <div class="explain-k">优先级</div><div>${Number(selected.priority || 0).toFixed(3)}</div>
+            <div class="explain-k">解释来源</div><div>MissionPlan.reason（文本）</div>
+          </div>
+          <div class="factor-list">${factors.map(x => `<span class="factor-chip">${x}</span>`).join('')}</div>
+          <div>${selected.reason || '未提供 reason 字段，当前仅显示基础任务信息。'}</div>
+        `;
       }
 
       function updateMissionTable(targets) {
         missionRows.innerHTML = '';
         if (!targets.length) {
           missionRows.innerHTML = '<tr><td colspan="3">当前无任务</td></tr>';
+          updateMissionExplainPanel(targets);
           return;
         }
         for (const t of targets) {
           const tr = document.createElement('tr');
           const reason = t.reason || '未给出';
           const priority = Number(t.priority || 0).toFixed(3);
+          if (t.uav_id === selectedMissionUavId) {
+            tr.classList.add('selected-row');
+          }
+          tr.title = `查看 ${t.uav_id} 任务解释`;
+          tr.addEventListener('click', () => {
+            selectedMissionUavId = t.uav_id;
+            updateTable(state.uavs);
+            updateMissionTable(state.mission_targets);
+          });
           tr.innerHTML = `<td>${t.uav_id}</td><td>${priority}</td><td>${reason}</td>`;
           missionRows.appendChild(tr);
         }
+        updateMissionExplainPanel(targets);
       }
 
       async function tick() {
