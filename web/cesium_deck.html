@@ -15,6 +15,11 @@
         --ok: #22c55e;
         --warn: #ef4444;
         --landed: #60a5fa;
+        --sem-good: #22c55e;
+        --sem-weak: #f59e0b;
+        --sem-phy: #94a3b8;
+        --sem-deg: #0ea5e9;
+        --sem-drop: #ef4444;
       }
       html, body {
         margin: 0;
@@ -43,7 +48,7 @@
       }
       .side-inner {
         display: grid;
-        grid-template-rows: auto auto auto 180px 180px 1fr;
+        grid-template-rows: auto auto auto auto 180px 180px 1fr;
         height: 100%;
       }
       .meta {
@@ -117,6 +122,34 @@
         opacity: 0.45;
         cursor: not-allowed;
       }
+      .semantic-panel {
+        border-bottom: 1px solid var(--line);
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+      .semantic-title {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .semantic-kv {
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .semantic-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .semantic-chip {
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 2px 8px;
+      }
+      .semantic-chip.good { border-color: color-mix(in srgb, var(--sem-good) 60%, var(--line)); }
+      .semantic-chip.weak { border-color: color-mix(in srgb, var(--sem-weak) 60%, var(--line)); }
+      .semantic-chip.phy { border-color: color-mix(in srgb, var(--sem-phy) 60%, var(--line)); }
+      .semantic-chip.deg { border-color: color-mix(in srgb, var(--sem-deg) 60%, var(--line)); }
+      .semantic-chip.drop { border-color: color-mix(in srgb, var(--sem-drop) 60%, var(--line)); }
       .timeline-status {
         font-family: "JetBrains Mono", monospace;
         color: var(--muted);
@@ -154,7 +187,7 @@
       }
       @media (max-width: 1024px) {
         .layout { grid-template-columns: 1fr; }
-        .side-inner { grid-template-rows: auto auto auto 140px 160px 1fr; }
+        .side-inner { grid-template-rows: auto auto auto auto 140px 160px 1fr; }
       }
     </style>
   </head>
@@ -195,6 +228,7 @@
             </div>
             <span id="timeline_status" class="timeline-status">实时模式</span>
           </div>
+          <div id="semantic_panel" class="semantic-panel">语义退化态势初始化中...</div>
           <div id="deck"></div>
           <div class="table-wrap">
             <table>
@@ -216,10 +250,11 @@
     <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
     <script src="https://unpkg.com/deck.gl@8.9.36/dist.min.js"></script>
     <script>
-      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], fire_regions: [], mission_targets: [] };
+      const state = { timestamp: 0, uavs: [], links: [], fire_hotspots: [], fire_regions: [], mission_targets: [], semantic_mode: false, swarm_topic: '/swarm/state' };
       const rows = document.getElementById('rows');
       const missionRows = document.getElementById('mission_rows');
       const missionExplain = document.getElementById('mission_explain');
+      const semanticPanel = document.getElementById('semantic_panel');
       const meta = document.getElementById('meta');
       const showLinks = document.getElementById('show_links');
       const showHotspots = document.getElementById('show_hotspots');
@@ -392,13 +427,14 @@
         const links = showLinks.checked ? frame.links : [];
         const mission = showMission.checked ? frame.mission_targets : [];
         upsertCesiumEntities(frame.uavs);
-        upsertCesiumLinks(frame.uavs, links);
+        upsertCesiumLinks(frame.uavs, links, Boolean(frame.semantic_mode));
         upsertFireRegions(showRegions.checked ? frame.fire_regions : []);
         upsertFireHotspots(showHotspots.checked ? frame.fire_hotspots : []);
         upsertMissionLines(frame.uavs, mission);
-        updateDeck(frame.uavs, links);
+        updateDeck(frame.uavs, links, Boolean(frame.semantic_mode));
         updateTable(frame.uavs);
         updateMissionTable(mission);
+        updateSemanticPanel(frame);
       }
 
       function renderFrame() {
@@ -412,9 +448,12 @@
         state.fire_hotspots = frame.fire_hotspots || [];
         state.fire_regions = frame.fire_regions || [];
         state.mission_targets = frame.mission_targets || [];
+        state.semantic_mode = Boolean(frame.semantic_mode);
+        state.swarm_topic = frame.swarm_topic || '/swarm/state';
         const avgW = state.links.length
           ? (state.links.reduce((s, x) => s + x.weight, 0) / state.links.length).toFixed(3)
           : 'n/a';
+        const linkSummary = summarizeLinkHealth(state.links, state.semantic_mode);
         const maxFire = state.fire_hotspots.length
           ? Math.max(...state.fire_hotspots.map(x => x.intensity || 0)).toFixed(2)
           : 'n/a';
@@ -423,7 +462,7 @@
           ? '实时'
           : `${replayPlaying ? '回放中' : '回放暂停'} ${replayIndex + 1}/${stateHistory.length} @${replaySpeed}x`;
 
-        meta.innerHTML = `timestamp=${state.timestamp} 时间=${frameTime} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">fire_regions=${state.fire_regions.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">fire_region=${fireRegionMode ? 'on' : 'off'}</span><span class="badge">timeline=${replayTag}</span>`;
+        meta.innerHTML = `timestamp=${state.timestamp} 时间=${frameTime} <span class="badge">uav_count=${state.uavs.length}</span><span class="badge">link_count=${state.links.length}</span><span class="badge">avg_w=${avgW}</span><span class="badge">semantic=${state.semantic_mode ? 'on' : 'off'}</span><span class="badge">phy_occ=${linkSummary.physicalOcclusion}</span><span class="badge">sem_deg=${linkSummary.semanticDegraded + linkSummary.semanticDrop}</span><span class="badge">fire=${state.fire_hotspots.length}</span><span class="badge">fire_regions=${state.fire_regions.length}</span><span class="badge">max_fire=${maxFire}</span><span class="badge">mission=${state.mission_targets.length}</span><span class="badge">basemap=${basemapMode}</span><span class="badge">fire_region=${fireRegionMode ? 'on' : 'off'}</span><span class="badge">timeline=${replayTag}</span>`;
         applyLayerVisibility(state);
         updateTimelineStatus();
       }
@@ -605,13 +644,69 @@
         }
       }
 
-      function linkColor(weight) {
-        if (weight >= 0.75) return Cesium.Color.fromBytes(34, 197, 94, 220);
-        if (weight >= 0.45) return Cesium.Color.fromBytes(245, 158, 11, 220);
-        return Cesium.Color.fromBytes(239, 68, 68, 220);
+      function classifyLink(link, semanticMode) {
+        const w = Number(link.weight || 0);
+        if (link.is_occluded) return 'physical_occlusion';
+        if (semanticMode && w < 0.25) return 'semantic_drop';
+        if (semanticMode && w < 0.55) return 'semantic_degraded';
+        if (!semanticMode && w < 0.45) return 'weak_topology';
+        return 'healthy';
       }
 
-      function upsertCesiumLinks(uavs, links) {
+      function linkVisual(link, semanticMode) {
+        const cls = classifyLink(link, semanticMode);
+        if (cls === 'physical_occlusion') {
+          return { cls, color: Cesium.Color.fromBytes(148, 163, 184, 220), width: 2.0, dashed: false };
+        }
+        if (cls === 'semantic_drop') {
+          return { cls, color: Cesium.Color.fromBytes(239, 68, 68, 220), width: 2.0, dashed: true };
+        }
+        if (cls === 'semantic_degraded') {
+          return { cls, color: Cesium.Color.fromBytes(14, 165, 233, 220), width: 2.2, dashed: true };
+        }
+        if (cls === 'weak_topology') {
+          return { cls, color: Cesium.Color.fromBytes(245, 158, 11, 220), width: 2.0, dashed: false };
+        }
+        return { cls, color: Cesium.Color.fromBytes(34, 197, 94, 220), width: 2.2, dashed: false };
+      }
+
+      function summarizeLinkHealth(links, semanticMode) {
+        const out = {
+          healthy: 0,
+          weakTopology: 0,
+          physicalOcclusion: 0,
+          semanticDegraded: 0,
+          semanticDrop: 0
+        };
+        for (const l of links || []) {
+          const cls = classifyLink(l, semanticMode);
+          if (cls === 'physical_occlusion') out.physicalOcclusion += 1;
+          else if (cls === 'semantic_degraded') out.semanticDegraded += 1;
+          else if (cls === 'semantic_drop') out.semanticDrop += 1;
+          else if (cls === 'weak_topology') out.weakTopology += 1;
+          else out.healthy += 1;
+        }
+        return out;
+      }
+
+      function updateSemanticPanel(frame) {
+        const summary = summarizeLinkHealth(frame.links || [], Boolean(frame.semantic_mode));
+        const modeText = frame.semantic_mode ? '语义网络输出模式' : '普通拓扑模式';
+        const source = frame.swarm_topic || '/swarm/state';
+        semanticPanel.innerHTML = `
+          <div class="semantic-title">语义退化态势</div>
+          <div class="semantic-kv">模式=${modeText} | 订阅源=${source}</div>
+          <div class="semantic-chips">
+            <span class="semantic-chip good">健康链路 ${summary.healthy}</span>
+            <span class="semantic-chip weak">弱链路 ${summary.weakTopology}</span>
+            <span class="semantic-chip phy">物理遮挡 ${summary.physicalOcclusion}</span>
+            <span class="semantic-chip deg">语义退化 ${summary.semanticDegraded}</span>
+            <span class="semantic-chip drop">语义高退化 ${summary.semanticDrop}</span>
+          </div>
+        `;
+      }
+
+      function upsertCesiumLinks(uavs, links, semanticMode) {
         const posById = new Map();
         for (const u of uavs) {
           posById.set(u.id, u.position);
@@ -625,7 +720,10 @@
           if (!a || !b) continue;
           live.add(key);
 
-          const color = linkColor(l.weight);
+          const visual = linkVisual(l, semanticMode);
+          const material = visual.dashed
+            ? new Cesium.PolylineDashMaterialProperty({ color: visual.color, dashLength: 10 })
+            : visual.color;
           const positions = Cesium.Cartesian3.fromDegreesArrayHeights([
             a[1], a[0], a[2],
             b[1], b[0], b[2]
@@ -637,15 +735,15 @@
               id: `link:${key}`,
               polyline: {
                 positions,
-                width: 2 + (l.weight * 3.0),
-                material: color
+                width: visual.width + (l.weight * 2.2),
+                material
               }
             });
             polylineMap.set(key, e);
           } else {
             e.polyline.positions = positions;
-            e.polyline.material = color;
-            e.polyline.width = 2 + (l.weight * 3.0);
+            e.polyline.material = material;
+            e.polyline.width = visual.width + (l.weight * 2.2);
           }
         }
 
@@ -830,7 +928,7 @@
         }
       }
 
-      function updateDeck(uavs, links) {
+      function updateDeck(uavs, links, semanticMode) {
         const data = uavs.map((u, i) => ({
           x: i,
           y: u.position[2],
@@ -844,8 +942,17 @@
           .map(l => ({
             source: [indexById.get(l.source), 12],
             target: [indexById.get(l.target), 12],
-            weight: l.weight
+            weight: l.weight,
+            cls: classifyLink(l, semanticMode)
           }));
+
+        const deckColorByCls = (cls, alpha) => {
+          if (cls === 'physical_occlusion') return [148, 163, 184, alpha];
+          if (cls === 'semantic_drop') return [239, 68, 68, alpha];
+          if (cls === 'semantic_degraded') return [14, 165, 233, alpha];
+          if (cls === 'weak_topology') return [245, 158, 11, alpha];
+          return [34, 197, 94, alpha];
+        };
 
         deckgl.setProps({
           initialViewState: {
@@ -858,9 +965,9 @@
               data: linkData,
               getSourcePosition: d => d.source,
               getTargetPosition: d => d.target,
-              getSourceColor: d => d.weight >= 0.6 ? [34, 197, 94, 170] : [245, 158, 11, 170],
-              getTargetColor: d => d.weight >= 0.6 ? [34, 197, 94, 170] : [239, 68, 68, 170],
-              getWidth: d => 1 + d.weight * 3
+              getSourceColor: d => deckColorByCls(d.cls, 170),
+              getTargetColor: d => deckColorByCls(d.cls, 170),
+              getWidth: d => (d.cls === 'semantic_drop' ? 0.9 : 1.2) + d.weight * 2.4
             }),
             new deck.ScatterplotLayer({
               id: 'alt-panel',
@@ -969,7 +1076,9 @@
             links: next.links || [],
             fire_hotspots: next.fire_hotspots || [],
             fire_regions: next.fire_regions || [],
-            mission_targets: next.mission_targets || []
+            mission_targets: next.mission_targets || [],
+            semantic_mode: Boolean(next.semantic_mode),
+            swarm_topic: next.swarm_topic || '/swarm/state'
           });
           renderFrame();
         } catch (_) {

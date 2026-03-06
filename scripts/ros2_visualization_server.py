@@ -59,6 +59,8 @@ class SwarmStateCache:
         self._lock = threading.Lock()
         self._fire_first_seen_ms: dict[str, int] = {}
         self._real_region_stamp_ms: int = 0
+        swarm_topic = os.environ.get("SWARM_STATE_TOPIC", "/swarm/state")
+        semantic_mode = "semantic" in swarm_topic
         self._payload = {
             "timestamp": 0,
             "uavs": [],
@@ -66,6 +68,8 @@ class SwarmStateCache:
             "fire_hotspots": [],
             "fire_regions": [],
             "mission_targets": [],
+            "swarm_topic": swarm_topic,
+            "semantic_mode": semantic_mode,
         }
 
     def update_from_msg(self, msg: SwarmState) -> None:
@@ -98,6 +102,8 @@ class SwarmStateCache:
             "fire_hotspots": self._payload.get("fire_hotspots", []),
             "fire_regions": self._payload.get("fire_regions", []),
             "mission_targets": self._payload.get("mission_targets", []),
+            "swarm_topic": self._payload.get("swarm_topic", "/swarm/state"),
+            "semantic_mode": bool(self._payload.get("semantic_mode", False)),
         }
 
         with self._lock:
